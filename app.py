@@ -93,7 +93,7 @@ def create_pdf(unit_id, floor, carpet, costs, cust_name, date_str, use_parking):
 # --- 5. UI SETUP ---
 st.set_page_config(page_title="Tarangan Dashboard", layout="wide")
 
-st.markdown("""
+st.markdown(
     <style>
     /* COMPACT VIEW TO AVOID SCROLLING */
     .block-container { padding-top: 1rem !important; padding-bottom: 0rem !important; }
@@ -130,7 +130,7 @@ st.markdown("""
         cursor: not-allowed;
     }
     </style>
-""", unsafe_allow_html=True)
+, unsafe_allow_html=True)
 
 @st.cache_data(ttl=2)
 def load_data():
