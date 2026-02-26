@@ -130,13 +130,31 @@ def create_pdf(unit_id, floor, carpet, costs, cust_name, date_str, use_parking):
 # --- 5. UI SETUP ---
 st.set_page_config(page_title="Tarangan Dashboard", layout="centered")
 
+# CSS to ensure Buttons and Divs have IDENTICAL sizing/padding
 st.markdown("""
     <style>
-    div.stButton > button { height: 45px !important; width: 100% !important; margin: 0px !important; }
+    /* Force buttons to a fixed height and remove extra padding */
+    div.stButton > button { 
+        height: 45px !important; 
+        width: 100% !important; 
+        margin: 0px !important; 
+        padding: 0px !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+    }
+    /* Force Divs (Status boxes) to match button height exactly */
     .grid-box {
-        display: flex; align-items: center; justify-content: center;
-        height: 45px; width: 100%; border-radius: 4px;
-        font-weight: bold; font-size: 13px; margin: 0px !important;
+        display: flex; 
+        align-items: center; 
+        justify-content: center;
+        height: 45px; 
+        width: 100%; 
+        border-radius: 4px;
+        font-weight: bold; 
+        font-size: 13px; 
+        margin: 0px !important;
+        box-sizing: border-box;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -147,7 +165,7 @@ def load_data():
     df.columns = [str(c).strip() for c in df.columns]
     return df
 
-# --- 6. DIALOGS ---
+# --- 6. POP-UP DIALOG & CALLBACKS ---
 @st.dialog("Booking Confirmation")
 def download_dialog(unit_id, floor, carpet, costs, cust_name, date_str, use_parking, ist_log_time):
     st.write(f"Confirming booking for **Unit {unit_id}**")
@@ -177,9 +195,10 @@ def download_dialog(unit_id, floor, carpet, costs, cust_name, date_str, use_park
 
 def release_unit_callback(unit_to_release):
     st.session_state.selected_unit = None
-    if unit_to_release in storage["locks"]: del storage["locks"][unit_to_release]
+    if unit_to_release in storage["locks"]:
+        del storage["locks"][unit_to_release]
 
-# --- 7. MAIN ---
+# --- 7. MAIN LOGIC ---
 if 'authenticated' not in st.session_state: st.session_state.authenticated = False
 if 'selected_unit' not in st.session_state: st.session_state.selected_unit = None
 
@@ -197,16 +216,19 @@ else:
         st.title("🛠️ Admin Dashboard")
         if st.button("⚠️ Reset System"): storage["locks"].clear(); storage["sold_units"].clear(); storage["download_history"].clear(); st.rerun()
     else:
-        # PAGE 1: GRID LAYOUT
+        # --- PAGE 1: GRID LAYOUT ---
         if st.session_state.selected_unit is None:
             st.title("🏙️ Tarangan Sales Portal")
             inventory = load_data()
-            for f in range(1, 14): # Floor 1 to 13
+            
+            # Floors 1 (Top) to 13 (Bottom)
+            for f in range(1, 14):
                 cols = st.columns(6)
                 for i, u_num in enumerate(range(1, 7)):
                     unit_id = f"A-{f}{u_num:02d}"
-                    is_sold, is_refuge = unit_id in storage["sold_units"], unit_id in ["A-1205", "A-705"]
+                    is_sold = unit_id in storage["sold_units"]
                     is_locked = unit_id in storage["locks"] and storage["locks"][unit_id] != st.runtime.scriptrunner.get_script_run_ctx().session_id
+                    is_refuge = unit_id in ["A-1205", "A-705"]
 
                     if is_refuge:
                         cols[i].markdown(f"<div class='grid-box' style='background:#262730; color:#555; border:1px solid #444;'>REFUGE</div>", unsafe_allow_html=True)
@@ -218,11 +240,13 @@ else:
                         if cols[i].button(unit_id, key=unit_id):
                             st.session_state.selected_unit = unit_id
                             st.rerun()
-        
-        # PAGE 2: ORIGINAL COST SHEET
+
+        # --- PAGE 2: ORIGINAL COST SHEET ---
         else:
             search_id = st.session_state.selected_unit
-            if st.button("⬅️ Back to Layout"): st.session_state.selected_unit = None; st.rerun()
+            if st.button("⬅️ Back to Layout"):
+                st.session_state.selected_unit = None
+                st.rerun()
 
             inventory = load_data()
             match = inventory[inventory['ID'].astype(str).str.upper() == search_id]
@@ -230,6 +254,7 @@ else:
                 row = match.iloc[0]
                 base_agr, carpet_area = clean_numeric(row.get('Agreement Value', 0)), row.get('CARPET','N/A')
                 cust_name = st.text_input("👤 Customer Name:")
+                
                 ist_now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=5, minutes=30)))
                 today_str, today_full_log = ist_now.strftime("%d/%m/%Y"), ist_now.strftime("%d/%m/%Y %H:%M:%S")
 
