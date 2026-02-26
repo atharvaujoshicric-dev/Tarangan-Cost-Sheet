@@ -130,7 +130,6 @@ def create_pdf(unit_id, floor, carpet, costs, cust_name, date_str, use_parking):
 # --- 5. UI SETUP ---
 st.set_page_config(page_title="Tarangan Dashboard", layout="centered")
 
-# CSS to fix indentation and size issues
 st.markdown("""
     <style>
     div.stButton > button { height: 45px !important; width: 100% !important; margin: 0px !important; }
@@ -148,23 +147,20 @@ def load_data():
     df.columns = [str(c).strip() for c in df.columns]
     return df
 
-# --- 6. POP-UP DIALOG & CALLBACKS ---
+# --- 6. DIALOGS ---
 @st.dialog("Booking Confirmation")
 def download_dialog(unit_id, floor, carpet, costs, cust_name, date_str, use_parking, ist_log_time):
     st.write(f"Confirming booking for **Unit {unit_id}**")
     sales_name = st.text_input("Enter Sales Person Name:")
-    
     if st.button("Confirm & Download"):
         if not sales_name.strip():
             st.error("Please enter Sales Person Name to proceed.")
         else:
             pdf_bytes = create_pdf(unit_id, floor, carpet, costs, cust_name, date_str, use_parking)
             storage["download_history"].append({
-                "Timestamp (IST)": ist_log_time,
-                "Sales Person": sales_name,
+                "Timestamp (IST)": ist_log_time, "Sales Person": sales_name,
                 "Login User": st.session_state.get('user_id', 'Unknown'),
-                "Flat ID": unit_id,
-                "Customer": cust_name if cust_name else "N/A",
+                "Flat ID": unit_id, "Customer": cust_name if cust_name else "N/A",
                 "Agreement": format_indian_currency(costs['Final Agreement']),
                 "Stamp Duty": format_indian_currency(costs['Stamp Duty']),
                 "GST": format_indian_currency(costs['GST']),
@@ -181,10 +177,9 @@ def download_dialog(unit_id, floor, carpet, costs, cust_name, date_str, use_park
 
 def release_unit_callback(unit_to_release):
     st.session_state.selected_unit = None
-    if unit_to_release in storage["locks"]:
-        del storage["locks"][unit_to_release]
+    if unit_to_release in storage["locks"]: del storage["locks"][unit_to_release]
 
-# --- 7. LOGIN & MAIN ---
+# --- 7. MAIN ---
 if 'authenticated' not in st.session_state: st.session_state.authenticated = False
 if 'selected_unit' not in st.session_state: st.session_state.selected_unit = None
 
@@ -196,30 +191,25 @@ if not st.session_state.authenticated:
             st.session_state.authenticated, st.session_state.role, st.session_state.user_id = True, ("admin" if u == "Tarangan" else "user"), u
             st.rerun()
 else:
-    if st.sidebar.button("Logout"):
-        st.session_state.authenticated = False; st.rerun()
+    if st.sidebar.button("Logout"): st.session_state.authenticated = False; st.rerun()
 
     if st.session_state.role == "admin":
         st.title("🛠️ Admin Dashboard")
-        # Admin logic stays original
         if st.button("⚠️ Reset System"): storage["locks"].clear(); storage["sold_units"].clear(); storage["download_history"].clear(); st.rerun()
     else:
-        # PAGE 1: GRID
+        # PAGE 1: GRID LAYOUT
         if st.session_state.selected_unit is None:
             st.title("🏙️ Tarangan Sales Portal")
             inventory = load_data()
-            
-            # Floors 1 (Top) to 13 (Bottom)
-            for f in range(1, 14):
+            for f in range(1, 14): # Floor 1 to 13
                 cols = st.columns(6)
                 for i, u_num in enumerate(range(1, 7)):
                     unit_id = f"A-{f}{u_num:02d}"
-                    is_sold = unit_id in storage["sold_units"]
+                    is_sold, is_refuge = unit_id in storage["sold_units"], unit_id in ["A-1205", "A-705"]
                     is_locked = unit_id in storage["locks"] and storage["locks"][unit_id] != st.runtime.scriptrunner.get_script_run_ctx().session_id
-                    is_refuge = unit_id in ["A-1205", "A-705"]
 
                     if is_refuge:
-                        cols[i].markdown(f"<div class='grid-box' style='background:#262730; color:#555; border:1px solid #444;'>REFUGE {unit_id}</div>", unsafe_allow_html=True)
+                        cols[i].markdown(f"<div class='grid-box' style='background:#262730; color:#555; border:1px solid #444;'>REFUGE</div>", unsafe_allow_html=True)
                     elif is_sold:
                         cols[i].markdown(f"<div class='grid-box' style='background:#28a745; color:white;'>{unit_id}</div>", unsafe_allow_html=True)
                     elif is_locked:
@@ -228,13 +218,11 @@ else:
                         if cols[i].button(unit_id, key=unit_id):
                             st.session_state.selected_unit = unit_id
                             st.rerun()
-
-        # PAGE 2: COST SHEET
+        
+        # PAGE 2: ORIGINAL COST SHEET
         else:
             search_id = st.session_state.selected_unit
-            if st.button("⬅️ Back to Layout"):
-                st.session_state.selected_unit = None
-                st.rerun()
+            if st.button("⬅️ Back to Layout"): st.session_state.selected_unit = None; st.rerun()
 
             inventory = load_data()
             match = inventory[inventory['ID'].astype(str).str.upper() == search_id]
@@ -242,8 +230,10 @@ else:
                 row = match.iloc[0]
                 base_agr, carpet_area = clean_numeric(row.get('Agreement Value', 0)), row.get('CARPET','N/A')
                 cust_name = st.text_input("👤 Customer Name:")
-                
-                # ... Rest of your original Negotiation / HTML logic ...
+                ist_now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=5, minutes=30)))
+                today_str, today_full_log = ist_now.strftime("%d/%m/%Y"), ist_now.strftime("%d/%m/%Y %H:%M:%S")
+
+                st.write("---")
                 c1, c2, c3 = st.columns(3)
                 with c1:
                     use_d = st.checkbox("Discount")
@@ -256,9 +246,8 @@ else:
                 with c3: is_f = st.checkbox("Female")
                 
                 res = calculate_negotiation(base_agr, d_val, p_d_val, use_p, is_f)
-                ist_now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=5, minutes=30)))
-                today_str, today_full_log = ist_now.strftime("%d/%m/%Y"), ist_now.strftime("%d/%m/%Y %H:%M:%S")
 
+                # EXACT ORIGINAL ON-SCREEN COST SHEET
                 st.markdown(f"""
                     <div style="background:white; padding:30px; border:2px solid black; color:black; font-family:monospace;">
                         <div style="text-align:right;">Date: {today_str}</div>
@@ -266,9 +255,18 @@ else:
                         <p><b>Customer:</b> {cust_name if cust_name else '________________'}</p>
                         <p><b>Unit:</b> {search_id} | <b>Floor:</b> {row.get('Floor','N/A')} | <b>Carpet:</b> {carpet_area} sqft</p>
                         <div style="display:flex; justify-content:space-between; border-bottom:1px dotted #888; padding:5px 0;"><span>Agreement</span><span>Rs. {format_indian_currency(res['Final Agreement'])}</span></div>
+                        <div style="display:flex; justify-content:space-between; border-bottom:1px dotted #888; padding:5px 0;"><span>Stamp Duty ({int(res['SD_Pct'])}%)</span><span>Rs. {format_indian_currency(res['Stamp Duty'])}</span></div>
+                        <div style="display:flex; justify-content:space-between; border-bottom:1px dotted #888; padding:5px 0;"><span>GST ({int(res['GST_Pct'])}%)</span><span>Rs. {format_indian_currency(res['GST'])}</span></div>
+                        <div style="display:flex; justify-content:space-between; border-bottom:1px dotted #888; padding:5px 0;"><span>Registration</span><span>Rs. {format_indian_currency(res['Registration'])}</span></div>
                         <div style="display:flex; justify-content:space-between; font-weight:bold; font-size:1.2em; border-top:2px solid black; margin-top:10px; padding:10px 0;"><span>TOTAL</span><span>Rs. {format_indian_currency(res['Total'])}</span></div>
+                        <div style="font-style:italic; margin-top:5px;">Rupees {num2words(res['Total'], lang='en_IN').title().replace(",","")} Only</div>
+                        <div style="color:red; font-weight:bold; margin-top:10px;">Total Discount Availed: Rs. {format_indian_currency(res['Combined_Discount'])}</div>
                     </div>
                 """, unsafe_allow_html=True)
-
-                if st.button("📥 Download PDF & Block"):
-                    download_dialog(search_id, row.get('Floor','N/A'), carpet_area, res, cust_name, today_str, use_p, today_full_log)
+                
+                col_d, col_r = st.columns(2)
+                with col_d:
+                    if st.button("📥 Download PDF & Block"):
+                        download_dialog(search_id, row.get('Floor','N/A'), carpet_area, res, cust_name, today_str, use_p, today_full_log)
+                with col_r:
+                    st.button("❌ Clear & Release Unit", on_click=release_unit_callback, args=(search_id,))
