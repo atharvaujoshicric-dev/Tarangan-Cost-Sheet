@@ -127,51 +127,35 @@ def create_pdf(unit_id, floor, carpet, costs, cust_name, date_str, use_parking):
 
     return pdf.output(dest='S').encode('latin-1')
 
-# --- 5. UI SETUP & CSS FIXES ---
+# --- 5. UI SETUP & CSS ---
 st.set_page_config(page_title="Tarangan Dashboard", layout="centered")
 
-# This CSS ensures that both buttons and markdown divs occupy the EXACT SAME space.
+# This CSS targets Streamlit's internal button styling to force uniform height and width
 st.markdown("""
     <style>
-    /* Standardize height, width, and spacing for ALL grid elements */
-    div.stButton > button, .grid-box {
-        height: 50px !important;
-        width: 100% !important;
+    /* Uniform container for grid items */
+    div.stButton > button, div.stMarkdown > div > div.grid-box {
         min-height: 50px !important;
         max-height: 50px !important;
-        margin: 0px !important;
-        padding: 0px !important;
+        height: 50px !important;
+        width: 100% !important;
+        padding: 0 !important;
+        margin: 0 !important;
         display: flex !important;
         align-items: center !important;
         justify-content: center !important;
         border-radius: 4px !important;
         box-sizing: border-box !important;
         font-weight: bold !important;
-        font-size: 12px !important;
-        text-align: center !important;
-        line-height: normal !important;
+        font-size: 13px !important;
     }
-    
-    /* Refuge styling to match standard grid box dimensions */
-    .grid-box.refuge { 
-        background: #2b2c36; 
-        color: #5c5d6b; 
-        border: 1px solid #3d3e4d; 
+    .grid-box {
+        text-align: center;
+        border: 1px solid rgba(255, 255, 255, 0.2);
     }
-    
-    /* Sold styling to match standard grid box dimensions */
-    .grid-box.sold { 
-        background: #28a745; 
-        color: white; 
-        border: 1px solid transparent; 
-    }
-    
-    /* Busy styling to match standard grid box dimensions */
-    .grid-box.busy { 
-        background: #ffc107; 
-        color: black; 
-        border: 1px solid transparent; 
-    }
+    .grid-box.refuge { background: #2b2c36; color: #5c5d6b; border-color: #3d3e4d; }
+    .grid-box.sold { background: #28a745; color: white; }
+    .grid-box.busy { background: #ffc107; color: black; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -214,7 +198,7 @@ def release_unit_callback(unit_to_release):
     if unit_to_release in storage["locks"]:
         del storage["locks"][unit_to_release]
 
-# --- 7. MAIN LOGIC ---
+# --- 7. MAIN ---
 if 'authenticated' not in st.session_state: st.session_state.authenticated = False
 if 'selected_unit' not in st.session_state: st.session_state.selected_unit = None
 
@@ -226,21 +210,17 @@ if not st.session_state.authenticated:
             st.session_state.authenticated, st.session_state.role, st.session_state.user_id = True, ("admin" if u == "Tarangan" else "user"), u
             st.rerun()
 else:
-    if st.sidebar.button("Logout"): 
-        st.session_state.authenticated = False
-        st.rerun()
+    if st.sidebar.button("Logout"): st.session_state.authenticated = False; st.rerun()
 
     if st.session_state.role == "admin":
         st.title("🛠️ Admin Dashboard")
         if st.button("⚠️ Reset System"): storage["locks"].clear(); storage["sold_units"].clear(); storage["download_history"].clear(); st.rerun()
     else:
-        # SCREEN 1: UNIT LAYOUT
+        # SCREEN 1: GRID
         if st.session_state.selected_unit is None:
             st.title("🏙️ Tarangan Sales Portal")
             inventory = load_data()
-            
-            # Floor 1 to 13 Grid
-            for f in range(1, 14):
+            for f in range(1, 14): # A-101 to A-1306
                 cols = st.columns(6)
                 for i, u_num in enumerate(range(1, 7)):
                     unit_id = f"A-{f}{u_num:02d}"
@@ -273,7 +253,6 @@ else:
                 row = match.iloc[0]
                 base_agr, carpet_area = clean_numeric(row.get('Agreement Value', 0)), row.get('CARPET','N/A')
                 cust_name = st.text_input("👤 Customer Name:")
-                
                 ist_now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=5, minutes=30)))
                 today_str, today_full_log = ist_now.strftime("%d/%m/%Y"), ist_now.strftime("%d/%m/%Y %H:%M:%S")
 
@@ -291,6 +270,7 @@ else:
                 
                 res = calculate_negotiation(base_agr, d_val, p_d_val, use_p, is_f)
 
+                # EXACT ORIGINAL ON-SCREEN COST SHEET
                 st.markdown(f"""
                     <div style="background:white; padding:30px; border:2px solid black; color:black; font-family:monospace;">
                         <div style="text-align:right;">Date: {today_str}</div>
