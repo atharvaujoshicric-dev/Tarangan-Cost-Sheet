@@ -130,43 +130,45 @@ def create_pdf(unit_id, floor, carpet, costs, cust_name, date_str, use_parking):
 # --- 5. UI SETUP ---
 st.set_page_config(page_title="Tarangan Dashboard", layout="centered")
 
-# CSS for absolute parity in grid alignment and sizing
+# Unified CSS for absolute parity in grid sizing
 st.markdown("""
     <style>
-    /* Ensure the Streamlit button matches the custom div boxes */
+    /* 1. Reset Column Padding to keep the grid tight */
+    [data-testid="column"] {
+        padding: 2px !important;
+    }
+
+    /* 2. Force Streamlit Buttons to a fixed height and center content */
     div.stButton > button {
-        height: 45px !important;
+        height: 40px !important;
         width: 100% !important;
         margin: 0px !important;
         padding: 0px !important;
         border-radius: 4px !important;
         font-weight: bold !important;
-        font-size: 13px !important;
+        font-size: 12px !important;
         display: flex !important;
         align-items: center !important;
         justify-content: center !important;
+        box-sizing: border-box !important;
     }
-    
-    /* Ensure the custom markdown boxes match the button dimensions */
+
+    /* 3. Force Markdown Divs (Sold/Refuge) to the EXACT same fixed height */
     .grid-box {
-        height: 45px !important;
+        height: 40px !important;
         width: 100% !important;
         margin: 0px !important;
         padding: 0px !important;
         border-radius: 4px !important;
         font-weight: bold !important;
-        font-size: 13px !important;
+        font-size: 12px !important;
         display: flex !important;
         align-items: center !important;
         justify-content: center !important;
         text-align: center !important;
         box-sizing: border-box !important;
-        border: 1px solid rgba(255, 255, 255, 0.1);
-    }
-
-    /* Remove extra padding from streamlit columns to keep grid tight */
-    [data-testid="column"] {
-        padding: 2px !important;
+        /* Slight border to match the visual weight of buttons */
+        border: 1px solid rgba(255, 255, 255, 0.1); 
     }
     </style>
 """, unsafe_allow_html=True)
@@ -178,7 +180,7 @@ def load_data():
         df.columns = [str(c).strip() for c in df.columns]
         return df
     except:
-        return pd.DataFrame(columns=['ID', 'Agreement Value', 'CARPET', 'Floor'])
+        return pd.DataFrame()
 
 # --- 6. POP-UP DIALOG & CALLBACKS ---
 @st.dialog("Booking Confirmation")
@@ -267,6 +269,7 @@ else:
                     is_locked = unit_id in storage["locks"] and storage["locks"][unit_id] != st.runtime.scriptrunner.get_script_run_ctx().session_id
                     is_refuge = unit_id in ["A-1205", "A-705"]
 
+                    # Important: Use columns directly inside a context to maintain layout parity
                     with cols[i]:
                         if is_refuge:
                             st.markdown(f"<div class='grid-box' style='background:#2a2b36; color:#5c5d6b;'>REFUGE</div>", unsafe_allow_html=True)
