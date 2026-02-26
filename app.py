@@ -213,7 +213,7 @@ else:
         st.title("🏙️ Tarangan Sales Portal")
         inventory = load_data()
         
-        # --- NEW GRID LAYOUT ---
+        # --- GRID LAYOUT ---
         st.subheader("Select Unit from Layout")
         floors = [13, 12, 11, 10, 9, 8, 7, 6]
         units_per_floor = [1, 2, 3, 4, 5, 6]
@@ -223,22 +223,30 @@ else:
             for i, u_num in enumerate(units_per_floor):
                 unit_id = f"A-{f}{u_num:02d}"
                 
-                # Check if it's a refuge area
-                if unit_id in ["A-1205", "A-705"]:
-                    cols[i].button(f"REFUGE {unit_id}", key=unit_id, disabled=True)
-                # Check if sold
-                elif unit_id in storage["sold_units"]:
-                    cols[i].button(f"🔴 {unit_id}", key=unit_id, disabled=True)
-                # Otherwise, clickable button
+                # Check States
+                is_sold = unit_id in storage["sold_units"]
+                is_locked = unit_id in storage["locks"] and storage["locks"][unit_id] != st.runtime.scriptrunner.get_script_run_ctx().session_id
+                is_refuge = unit_id in ["A-1205", "A-705"]
+
+                # Styling and Button logic
+                if is_refuge:
+                    cols[i].button(f"REFUGE {unit_id}", key=unit_id, disabled=True, use_container_width=True)
+                elif is_sold:
+                    # Green for Sold
+                    cols[i].markdown(f"**<div style='background-color:#28a745; color:white; border-radius:4px; padding:10px; text-align:center; font-size:14px;'>{unit_id}</div>**", unsafe_allow_html=True)
+                elif is_locked:
+                    # Yellow for Busy
+                    cols[i].markdown(f"**<div style='background-color:#ffc107; color:black; border-radius:4px; padding:10px; text-align:center; font-size:14px;'>{unit_id}</div>**", unsafe_allow_html=True)
                 else:
                     if cols[i].button(unit_id, key=unit_id, use_container_width=True):
                         st.session_state.selected_unit = unit_id
+            st.write("") # Floor spacing
 
         # --- ORIGINAL NEGOTIATION LOGIC ---
         if st.session_state.selected_unit:
             search_id = st.session_state.selected_unit
             
-            # Lock Check
+            # Final Safety Lock Check
             if search_id in storage["locks"] and storage["locks"][search_id] != st.runtime.scriptrunner.get_script_run_ctx().session_id:
                 st.error("⚠️ Unit Busy.")
                 st.stop()
@@ -266,7 +274,6 @@ else:
                 
                 res = calculate_negotiation(base_agr, d_val, p_d_val, use_p, is_f)
                 
-                # The exact HTML block from your code
                 st.markdown(f"""
                     <div style="background:white; padding:30px; border:2px solid black; color:black; font-family:monospace;">
                         <div style="text-align:right;">Date: {today_str}</div>
