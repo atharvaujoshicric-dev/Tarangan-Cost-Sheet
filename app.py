@@ -127,16 +127,13 @@ def create_pdf(unit_id, floor, carpet, costs, cust_name, date_str, use_parking):
 
     return pdf.output(dest='S').encode('latin-1')
 
-# --- 5. UI SETUP & CSS ---
+# --- 5. UI SETUP ---
 st.set_page_config(page_title="Tarangan Dashboard", layout="centered")
 
-# Unified CSS for absolute sizing parity
+# Unified CSS for absolute sizing parity in the grid
 st.markdown("""
     <style>
-    /* Standardize all grid items to have the same height and borders */
-    div.stButton > button, .grid-box {
-        min-height: 48px !important;
-        max-height: 48px !important;
+    div.stButton > button {
         height: 48px !important;
         width: 100% !important;
         margin: 0px !important;
@@ -144,17 +141,22 @@ st.markdown("""
         display: flex !important;
         align-items: center !important;
         justify-content: center !important;
-        border-radius: 4px !important;
-        box-sizing: border-box !important;
+        border-radius: 6px !important;
+    }
+    .grid-box {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        height: 48px !important;
+        width: 100% !important;
+        border-radius: 6px !important;
         font-weight: bold !important;
         font-size: 13px !important;
-        text-align: center !important;
-        line-height: normal !important;
+        margin: 0px !important;
+        padding: 0px !important;
+        box-sizing: border-box !important;
         border: 1px solid rgba(255, 255, 255, 0.2);
     }
-    .grid-box.refuge { background: #2a2b36; color: #5c5d6b; border: 1px solid #3d3e4d; }
-    .grid-box.sold { background: #28a745; color: white; border: none; }
-    .grid-box.busy { background: #ffc107; color: black; border: none; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -164,32 +166,47 @@ def load_data():
     df.columns = [str(c).strip() for c in df.columns]
     return df
 
-# --- 6. DIALOGS & CALLBACKS ---
+# --- 6. POP-UP DIALOG & CALLBACKS ---
 @st.dialog("Booking Confirmation")
 def download_dialog(unit_id, floor, carpet, costs, cust_name, date_str, use_parking, ist_log_time):
     st.write(f"Confirming booking for **Unit {unit_id}**")
     sales_name = st.text_input("Enter Sales Person Name:")
+    
     if st.button("Confirm & Download"):
         if not sales_name.strip():
-            st.error("Please enter Sales Person Name.")
+            st.error("Please enter Sales Person Name to proceed.")
         else:
             pdf_bytes = create_pdf(unit_id, floor, carpet, costs, cust_name, date_str, use_parking)
             storage["download_history"].append({
-                "Timestamp (IST)": ist_log_time, "Sales Person": sales_name,
+                "Timestamp (IST)": ist_log_time,
+                "Sales Person": sales_name,
                 "Login User": st.session_state.get('user_id', 'Unknown'),
-                "Flat ID": unit_id, "Customer": cust_name if cust_name else "N/A",
-                "TOTAL": format_indian_currency(costs['Total'])
+                "Flat ID": unit_id,
+                "Customer": cust_name if cust_name else "N/A",
+                "Agreement": format_indian_currency(costs['Final Agreement']),
+                "Stamp Duty": format_indian_currency(costs['Stamp Duty']),
+                "GST": format_indian_currency(costs['GST']),
+                "Registration": format_indian_currency(costs['Registration']),
+                "TOTAL": format_indian_currency(costs['Total']),
+                "Discount": format_indian_currency(costs['Combined_Discount'])
             })
             storage["sold_units"].add(unit_id)
-            st.success("Unit Blocked!")
-            st.download_button(label="📥 Save PDF", data=pdf_bytes, file_name=f"Tarangan_{unit_id}.pdf", mime="application/pdf")
-            if st.button("Finish"): 
+            st.success("Unit Blocked Successfully!")
+            st.download_button(label="📥 Click here to save PDF", data=pdf_bytes, file_name=f"Tarangan_{unit_id}.pdf", mime="application/pdf")
+            if st.button("Close"): 
                 st.session_state.selected_unit = None
                 st.rerun()
 
-# --- 7. MAIN APP LOGIC ---
-if 'authenticated' not in st.session_state: st.session_state.authenticated = False
-if 'selected_unit' not in st.session_state: st.session_state.selected_unit = None
+def release_unit_callback(unit_to_release):
+    st.session_state.selected_unit = None
+    if unit_to_release in storage["locks"]:
+        del storage["locks"][unit_to_release]
+
+# --- 7. LOGIN ---
+if 'authenticated' not in st.session_state:
+    st.session_state.authenticated = False
+if 'selected_unit' not in st.session_state:
+    st.session_state.selected_unit = None
 
 if not st.session_state.authenticated:
     st.title("🔐 Tarangan Login")
@@ -199,19 +216,37 @@ if not st.session_state.authenticated:
             st.session_state.authenticated, st.session_state.role, st.session_state.user_id = True, ("admin" if u == "Tarangan" else "user"), u
             st.rerun()
 else:
-    if st.sidebar.button("Logout"): 
-        st.session_state.authenticated = False
-        st.rerun()
+    if st.sidebar.button("Logout"):
+        st.session_state.authenticated = False; st.rerun()
 
     if st.session_state.role == "admin":
         st.title("🛠️ Admin Dashboard")
-        if st.button("⚠️ Reset System"): storage["locks"].clear(); storage["sold_units"].clear(); storage["download_history"].clear(); st.rerun()
+        t1, t2 = st.tabs(["Unit Management", "Detailed IST Records"])
+        with t1:
+            blocked = list(storage["sold_units"])
+            if blocked:
+                uid = st.selectbox("Select Unit to Unblock", blocked)
+                if st.button("Unblock"): 
+                    storage["sold_units"].remove(uid)
+                    storage["download_history"] = [item for item in storage["download_history"] if item.get("Flat ID") != uid]
+                    st.rerun()
+            if st.button("⚠️ Reset System"): storage["locks"].clear(); storage["sold_units"].clear(); storage["download_history"].clear(); st.rerun()
+        with t2:
+            if storage["download_history"]:
+                df_hist = pd.DataFrame(storage["download_history"])
+                st.dataframe(df_hist, use_container_width=True)
+                csv = df_hist.to_csv(index=False).encode('utf-8')
+                st.download_button("Export IST CSV", csv, "history_ist.csv", "text/csv")
+            else: st.info("No records recorded yet.")
+
     else:
         # SCREEN 1: GRID LAYOUT
         if st.session_state.selected_unit is None:
             st.title("🏙️ Tarangan Sales Portal")
             inventory = load_data()
-            for f in range(1, 14): # A-101 to A-1306
+            
+            # Floor 1 at top, Floor 13 at bottom
+            for f in range(1, 14):
                 cols = st.columns(6)
                 for i, u_num in enumerate(range(1, 7)):
                     unit_id = f"A-{f}{u_num:02d}"
@@ -220,11 +255,11 @@ else:
                     is_refuge = unit_id in ["A-1205", "A-705"]
 
                     if is_refuge:
-                        cols[i].markdown(f"<div class='grid-box refuge'>REFUGE</div>", unsafe_allow_html=True)
+                        cols[i].markdown(f"<div class='grid-box' style='background:#2a2b36; color:#5c5d6b; border: 1px solid #3d3e4d;'>REFUGE</div>", unsafe_allow_html=True)
                     elif is_sold:
-                        cols[i].markdown(f"<div class='grid-box sold'>{unit_id}</div>", unsafe_allow_html=True)
+                        cols[i].markdown(f"<div class='grid-box' style='background:#28a745; color:white;'>{unit_id}</div>", unsafe_allow_html=True)
                     elif is_locked:
-                        cols[i].markdown(f"<div class='grid-box busy'>{unit_id}</div>", unsafe_allow_html=True)
+                        cols[i].markdown(f"<div class='grid-box' style='background:#ffc107; color:black;'>{unit_id}</div>", unsafe_allow_html=True)
                     else:
                         if cols[i].button(unit_id, key=unit_id):
                             st.session_state.selected_unit = unit_id
@@ -262,6 +297,7 @@ else:
                 
                 res = calculate_negotiation(base_agr, d_val, p_d_val, use_p, is_f)
 
+                # EXACT ORIGINAL ON-SCREEN COST SHEET LOGIC
                 st.markdown(f"""
                     <div style="background:white; padding:30px; border:2px solid black; color:black; font-family:monospace;">
                         <div style="text-align:right;">Date: {today_str}</div>
@@ -282,3 +318,5 @@ else:
                 with col_d:
                     if st.button("📥 Download PDF & Block"):
                         download_dialog(search_id, row.get('Floor','N/A'), carpet_area, res, cust_name, today_str, use_p, today_full_log)
+                with col_r:
+                    st.button("❌ Clear & Release Unit", on_click=release_unit_callback, args=(search_id,))
