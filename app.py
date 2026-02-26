@@ -130,30 +130,20 @@ def create_pdf(unit_id, floor, carpet, costs, cust_name, date_str, use_parking):
 # --- 5. UI SETUP ---
 st.set_page_config(page_title="Tarangan Dashboard", layout="wide")
 
+# CSS for visual coloring
 st.markdown("""
     <style>
-    .stButton>button { width: 100%; border-radius: 5px; height: 3.2em; font-weight: bold; transition: 0.3s; }
-    
+    .stButton>button { width: 100%; border-radius: 5px; height: 3.5em; font-weight: bold; }
     /* SOLD - Green */
     div[data-testid="stHorizontalBlock"] button[data-testid="stBaseButton-primary"] {
-        background-color: #28a745 !important;
-        color: white !important;
-        border: none !important;
+        background-color: #28a745 !important; color: white !important; border: none !important;
     }
-    
     /* BUSY - Yellow */
     div[data-testid="stHorizontalBlock"] button:disabled:not(.refuge-btn) {
-        background-color: #ffc107 !important;
-        color: black !important;
-        opacity: 1 !important;
+        background-color: #ffc107 !important; color: black !important; opacity: 1 !important;
     }
-
-    /* REFUGE - Grey (Special Class) */
-    .refuge-btn {
-        background-color: #6c757d !important;
-        color: #ffffff !important;
-        cursor: not-allowed !important;
-    }
+    /* REFUGE - Grey */
+    .refuge-btn { background-color: #6c757d !important; color: white !important; cursor: not-allowed !important; border: none !important; width: 100%; height: 3.5em; border-radius: 5px; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -168,23 +158,17 @@ def load_data():
 def download_dialog(unit_id, floor, carpet, costs, cust_name, date_str, use_parking, ist_log_time):
     st.write(f"Confirming booking for **Unit {unit_id}**")
     sales_name = st.text_input("Enter Sales Person Name:")
-    
     if st.button("Confirm & Download"):
         if not sales_name.strip():
             st.error("Please enter Sales Person Name to proceed.")
         else:
             pdf_bytes = create_pdf(unit_id, floor, carpet, costs, cust_name, date_str, use_parking)
             storage["download_history"].append({
-                "Timestamp (IST)": ist_log_time,
-                "Sales Person": sales_name,
-                "Login User": st.session_state.get('user_id', 'Unknown'),
-                "Flat ID": unit_id,
-                "Customer": cust_name if cust_name else "N/A",
-                "Agreement": format_indian_currency(costs['Final Agreement']),
-                "Stamp Duty": format_indian_currency(costs['Stamp Duty']),
-                "GST": format_indian_currency(costs['GST']),
-                "Registration": format_indian_currency(costs['Registration']),
-                "TOTAL": format_indian_currency(costs['Total']),
+                "Timestamp (IST)": ist_log_time, "Sales Person": sales_name,
+                "Login User": st.session_state.get('user_id', 'Unknown'), "Flat ID": unit_id,
+                "Customer": cust_name if cust_name else "N/A", "Agreement": format_indian_currency(costs['Final Agreement']),
+                "Stamp Duty": format_indian_currency(costs['Stamp Duty']), "GST": format_indian_currency(costs['GST']),
+                "Registration": format_indian_currency(costs['Registration']), "TOTAL": format_indian_currency(costs['Total']),
                 "Discount": format_indian_currency(costs['Combined_Discount'])
             })
             storage["sold_units"].add(unit_id)
@@ -201,10 +185,8 @@ def release_unit_callback(unit_to_release):
     st.session_state.selected_unit = None
 
 # --- 7. LOGIN ---
-if 'authenticated' not in st.session_state:
-    st.session_state.authenticated = False
-if 'selected_unit' not in st.session_state:
-    st.session_state.selected_unit = None
+if 'authenticated' not in st.session_state: st.session_state.authenticated = False
+if 'selected_unit' not in st.session_state: st.session_state.selected_unit = None
 
 REFUGE_FLATS = ["705", "1205"]
 
@@ -221,7 +203,7 @@ else:
 
     if st.session_state.role == "admin":
         st.title("🛠️ Admin Dashboard")
-        t1, t2 = st.tabs(["Unit Management", "History"])
+        t1, t2 = st.tabs(["Unit Management", "Records"])
         with t1:
             blocked = list(storage["sold_units"])
             if blocked:
@@ -231,11 +213,11 @@ else:
                     st.rerun()
             if st.button("⚠️ Reset System"): storage["locks"].clear(); storage["sold_units"].clear(); storage["download_history"].clear(); st.rerun()
         with t2:
-            if storage["download_history"]:
-                st.dataframe(pd.DataFrame(storage["download_history"]), use_container_width=True)
+            if storage["download_history"]: st.dataframe(pd.DataFrame(storage["download_history"]), use_container_width=True)
             else: st.info("No records recorded yet.")
 
     else:
+        # --- SALES PORTAL VISUAL GRID ---
         st.title("🏙️ Tarangan Sales Portal")
         inventory = load_data()
         
@@ -244,10 +226,11 @@ else:
         l1.markdown("🟩 **Sold**")
         l2.markdown("🟨 **Busy**")
         l3.markdown("⬜ **Available**")
-        l4.markdown("⬛ **Refuge (Blocked)**")
-        
-        # Grid Display
+        l4.markdown("⬛ **Refuge**")
+
         floors = sorted(inventory['Floor'].unique(), reverse=True)
+        
+        # Unit Grid
         for floor in floors:
             st.write(f"### Floor {floor}")
             floor_units = inventory[inventory['Floor'] == floor].sort_values('ID')
@@ -261,8 +244,7 @@ else:
                 
                 with cols[idx % 6]:
                     if is_refuge:
-                        # Display Refuge as blocked grey button
-                        st.markdown(f'<button class="stButton refuge-btn" disabled style="width:100%; height:3.2em; border-radius:5px; border:none;">REFUGE ({uid})</button>', unsafe_allow_html=True)
+                        st.markdown(f'<button class="refuge-btn" disabled>REFUGE ({uid})</button>', unsafe_allow_html=True)
                     elif is_sold:
                         st.button(f"Unit {uid}", key=f"btn_{uid}", type="primary", disabled=True)
                     elif is_busy:
@@ -272,7 +254,7 @@ else:
                             st.session_state.selected_unit = uid
                             st.rerun()
 
-        # Calculation Area
+        # --- EXISTING CALCULATION LOGIC ---
         if st.session_state.selected_unit:
             search_id = st.session_state.selected_unit
             storage["locks"][search_id] = st.runtime.scriptrunner.get_script_run_ctx().session_id
@@ -283,7 +265,7 @@ else:
                 base_agr, carpet_area = clean_numeric(row.get('Agreement Value', 0)), row.get('CARPET','N/A')
                 
                 st.markdown("---")
-                st.subheader(f"📍 Negotiating Unit: {search_id}")
+                st.subheader(f"Unit Selected: {search_id}")
                 cust_name = st.text_input("👤 Customer Name:")
                 
                 ist_now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=5, minutes=30)))
@@ -305,8 +287,13 @@ else:
                         <div style="text-align:right;">Date: {today_str}</div>
                         <h2 style="text-align:center; border-bottom:2px solid black;">TARANGAN</h2>
                         <p><b>Unit:</b> {search_id} | <b>Floor:</b> {row.get('Floor','N/A')} | <b>Carpet:</b> {carpet_area} sqft</p>
+                        <div style="display:flex; justify-content:space-between; border-bottom:1px dotted #888; padding:5px 0;"><span>Agreement</span><span>Rs. {format_indian_currency(res['Final Agreement'])}</span></div>
+                        <div style="display:flex; justify-content:space-between; border-bottom:1px dotted #888; padding:5px 0;"><span>Stamp Duty ({int(res['SD_Pct'])}%)</span><span>Rs. {format_indian_currency(res['Stamp Duty'])}</span></div>
+                        <div style="display:flex; justify-content:space-between; border-bottom:1px dotted #888; padding:5px 0;"><span>GST ({int(res['GST_Pct'])}%)</span><span>Rs. {format_indian_currency(res['GST'])}</span></div>
+                        <div style="display:flex; justify-content:space-between; border-bottom:1px dotted #888; padding:5px 0;"><span>Registration</span><span>Rs. {format_indian_currency(res['Registration'])}</span></div>
                         <div style="display:flex; justify-content:space-between; font-weight:bold; font-size:1.2em; border-top:2px solid black; margin-top:10px; padding:10px 0;"><span>TOTAL</span><span>Rs. {format_indian_currency(res['Total'])}</span></div>
-                        <div style="color:red; font-weight:bold;">Total Discount: Rs. {format_indian_currency(res['Combined_Discount'])}</div>
+                        <div style="font-style:italic; margin-top:5px;">Rupees {num2words(res['Total'], lang='en_IN').title().replace(",","")} Only</div>
+                        <div style="color:red; font-weight:bold; margin-top:10px;">Total Discount Availed: Rs. {format_indian_currency(res['Combined_Discount'])}</div>
                     </div>
                 """, unsafe_allow_html=True)
                 
