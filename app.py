@@ -255,7 +255,7 @@ else:
                     is_refuge = unit_id in ["A-1205", "A-705"]
 
                     if is_refuge:
-                        cols[i].markdown(f"<div class='grid-box' style='background:#2a2b36; color:#5c5d6b; border: 1px solid #3d3e4d;'>REFUGE</div>", unsafe_allow_html=True)
+                        cols[i].markdown(f"<div class='grid-box' style='background:#2a2b36; color:#5c5d6b;'>REFUGE</div>", unsafe_allow_html=True)
                     elif is_sold:
                         cols[i].markdown(f"<div class='grid-box' style='background:#28a745; color:white;'>{unit_id}</div>", unsafe_allow_html=True)
                     elif is_locked:
