@@ -127,42 +127,35 @@ def create_pdf(unit_id, floor, carpet, costs, cust_name, date_str, use_parking):
 
     return pdf.output(dest='S').encode('latin-1')
 
-# --- 5. UI SETUP & CSS ---
+# --- 5. UI SETUP ---
 st.set_page_config(page_title="Tarangan Dashboard", layout="centered")
 
 st.markdown("""
     <style>
-    /* Force buttons and divs to IDENTICAL dimensions and spacing */
-    div.stButton > button {
-        height: 50px !important;
-        width: 100% !important;
+    /* Global box size constraint for the grid */
+    div.stButton > button { 
+        height: 48px !important; 
+        width: 100% !important; 
         margin: 0px !important;
         padding: 0px !important;
         display: flex !important;
         align-items: center !important;
         justify-content: center !important;
-        border-radius: 4px !important;
-        font-weight: bold !important;
-        font-size: 13px !important;
+        border-radius: 6px !important;
     }
     .grid-box {
         display: flex !important;
         align-items: center !important;
         justify-content: center !important;
-        height: 50px !important;
+        height: 48px !important;
         width: 100% !important;
-        margin: 0px !important;
-        padding: 0px !important;
-        border-radius: 4px !important;
+        border-radius: 6px !important;
         font-weight: bold !important;
         font-size: 13px !important;
+        margin: 0px !important;
+        padding: 0px !important;
         box-sizing: border-box !important;
-        line-height: 50px !important;
-        border: 1px solid transparent;
-    }
-    /* Horizontal spacing between columns */
-    div[data-testid="column"] {
-        padding: 0 5px !important;
+        border: 1px solid rgba(255, 255, 255, 0.2);
     }
     </style>
 """, unsafe_allow_html=True)
@@ -178,15 +171,18 @@ def load_data():
 def download_dialog(unit_id, floor, carpet, costs, cust_name, date_str, use_parking, ist_log_time):
     st.write(f"Confirming booking for **Unit {unit_id}**")
     sales_name = st.text_input("Enter Sales Person Name:")
+    
     if st.button("Confirm & Download"):
         if not sales_name.strip():
             st.error("Please enter Sales Person Name to proceed.")
         else:
             pdf_bytes = create_pdf(unit_id, floor, carpet, costs, cust_name, date_str, use_parking)
             storage["download_history"].append({
-                "Timestamp (IST)": ist_log_time, "Sales Person": sales_name,
+                "Timestamp (IST)": ist_log_time,
+                "Sales Person": sales_name,
                 "Login User": st.session_state.get('user_id', 'Unknown'),
-                "Flat ID": unit_id, "Customer": cust_name if cust_name else "N/A",
+                "Flat ID": unit_id,
+                "Customer": cust_name if cust_name else "N/A",
                 "Agreement": format_indian_currency(costs['Final Agreement']),
                 "Stamp Duty": format_indian_currency(costs['Stamp Duty']),
                 "GST": format_indian_currency(costs['GST']),
@@ -206,7 +202,7 @@ def release_unit_callback(unit_to_release):
     if unit_to_release in storage["locks"]:
         del storage["locks"][unit_to_release]
 
-# --- 7. MAIN LOGIC ---
+# --- 7. MAIN APP LOGIC ---
 if 'authenticated' not in st.session_state: st.session_state.authenticated = False
 if 'selected_unit' not in st.session_state: st.session_state.selected_unit = None
 
@@ -218,16 +214,19 @@ if not st.session_state.authenticated:
             st.session_state.authenticated, st.session_state.role, st.session_state.user_id = True, ("admin" if u == "Tarangan" else "user"), u
             st.rerun()
 else:
-    if st.sidebar.button("Logout"): st.session_state.authenticated = False; st.rerun()
+    if st.sidebar.button("Logout"): 
+        st.session_state.authenticated = False
+        st.rerun()
 
     if st.session_state.role == "admin":
         st.title("🛠️ Admin Dashboard")
         if st.button("⚠️ Reset System"): storage["locks"].clear(); storage["sold_units"].clear(); storage["download_history"].clear(); st.rerun()
     else:
-        # SCREEN 1: LAYOUT
+        # SCREEN 1: LAYOUT GRID (Floor 1 to 13)
         if st.session_state.selected_unit is None:
             st.title("🏙️ Tarangan Sales Portal")
             inventory = load_data()
+            
             for f in range(1, 14):
                 cols = st.columns(6)
                 for i, u_num in enumerate(range(1, 7)):
@@ -237,7 +236,7 @@ else:
                     is_refuge = unit_id in ["A-1205", "A-705"]
 
                     if is_refuge:
-                        cols[i].markdown(f"<div class='grid-box' style='background:#2d2d34; color:#666; border:1px solid #444;'>REFUGE</div>", unsafe_allow_html=True)
+                        cols[i].markdown(f"<div class='grid-box' style='background:#2a2b36; color:#5c5d6b; border: 1px solid #3d3e4d;'>REFUGE</div>", unsafe_allow_html=True)
                     elif is_sold:
                         cols[i].markdown(f"<div class='grid-box' style='background:#28a745; color:white;'>{unit_id}</div>", unsafe_allow_html=True)
                     elif is_locked:
@@ -246,9 +245,9 @@ else:
                         if cols[i].button(unit_id, key=unit_id):
                             st.session_state.selected_unit = unit_id
                             st.rerun()
-                st.write("") 
+                st.write("") # Floor Spacing
 
-        # SCREEN 2: ON-SCREEN COST SHEET
+        # SCREEN 2: ORIGINAL ON-SCREEN COST SHEET
         else:
             search_id = st.session_state.selected_unit
             if st.button("⬅️ Back to Layout"):
@@ -261,6 +260,7 @@ else:
                 row = match.iloc[0]
                 base_agr, carpet_area = clean_numeric(row.get('Agreement Value', 0)), row.get('CARPET','N/A')
                 cust_name = st.text_input("👤 Customer Name:")
+                
                 ist_now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=5, minutes=30)))
                 today_str, today_full_log = ist_now.strftime("%d/%m/%Y"), ist_now.strftime("%d/%m/%Y %H:%M:%S")
 
