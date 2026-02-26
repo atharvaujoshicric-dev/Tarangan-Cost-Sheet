@@ -57,7 +57,7 @@ def calculate_negotiation(initial_agreement, pkg_discount=0, park_discount=0, us
         "Combined_Discount": int(pkg_discount + park_discount)
     }
 
-# --- 4. PDF GENERATION ---
+# --- 4. PDF GENERATION (EXACT ORIGINAL) ---
 def create_pdf(unit_id, floor, carpet, costs, cust_name, date_str, use_parking):
     pdf = FPDF()
     copies = ["Customer's Copy", "Sales Copy"]
@@ -127,42 +127,19 @@ def create_pdf(unit_id, floor, carpet, costs, cust_name, date_str, use_parking):
 
     return pdf.output(dest='S').encode('latin-1')
 
-# --- 5. UI SETUP ---
+# --- 5. UI SETUP & CSS ---
 st.set_page_config(page_title="Tarangan Dashboard", layout="centered")
 
-# Unified CSS for exact sizing of all grid components
 st.markdown("""
     <style>
-    div.stButton > button { 
-        height: 50px !important; 
-        width: 100% !important; 
-        margin: 0px !important; 
-        padding: 0px !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        border-radius: 4px !important;
-        box-sizing: border-box !important;
+    /* Fixed height for everything to keep grid perfect */
+    div.stButton > button { height: 45px !important; width: 100% !important; margin: 0px !important; }
+    .status-box {
+        display: flex; align-items: center; justify-content: center;
+        height: 45px; width: 100%; border-radius: 4px;
+        font-weight: bold; font-size: 13px; margin: 0px !important;
+        text-align: center; border: 1px solid transparent;
     }
-    .grid-box {
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        height: 50px !important; 
-        width: 100% !important; 
-        border-radius: 4px !important;
-        font-weight: bold !important; 
-        font-size: 13px !important; 
-        margin: 0px !important;
-        padding: 0px !important;
-        box-sizing: border-box !important;
-        border: 1px solid transparent;
-        line-height: 50px !important;
-        text-align: center;
-    }
-    .refuge-style { background-color: #262730; color: #555; border: 1px solid #444; }
-    .sold-style { background-color: #28a745; color: white; }
-    .busy-style { background-color: #ffc107; color: black; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -172,7 +149,7 @@ def load_data():
     df.columns = [str(c).strip() for c in df.columns]
     return df
 
-# --- 6. DIALOGS & CALLBACKS ---
+# --- 6. POP-UP DIALOG & CALLBACKS ---
 @st.dialog("Booking Confirmation")
 def download_dialog(unit_id, floor, carpet, costs, cust_name, date_str, use_parking, ist_log_time):
     st.write(f"Confirming booking for **Unit {unit_id}**")
@@ -202,8 +179,7 @@ def download_dialog(unit_id, floor, carpet, costs, cust_name, date_str, use_park
 
 def release_unit_callback(unit_to_release):
     st.session_state.selected_unit = None
-    if unit_to_release in storage["locks"]:
-        del storage["locks"][unit_to_release]
+    if unit_to_release in storage["locks"]: del storage["locks"][unit_to_release]
 
 # --- 7. MAIN LOGIC ---
 if 'authenticated' not in st.session_state: st.session_state.authenticated = False
@@ -223,11 +199,13 @@ else:
         st.title("🛠️ Admin Dashboard")
         if st.button("⚠️ Reset System"): storage["locks"].clear(); storage["sold_units"].clear(); storage["download_history"].clear(); st.rerun()
     else:
-        # PAGE 1: GRID
+        # --- SCREEN 1: UNIT LAYOUT ---
         if st.session_state.selected_unit is None:
             st.title("🏙️ Tarangan Sales Portal")
             inventory = load_data()
-            for f in range(1, 14): # Floor 1 to 13
+            
+            # Start Floor 1 at Top, Floor 13 at Bottom
+            for f in range(1, 14):
                 cols = st.columns(6)
                 for i, u_num in enumerate(range(1, 7)):
                     unit_id = f"A-{f}{u_num:02d}"
@@ -236,18 +214,17 @@ else:
                     is_refuge = unit_id in ["A-1205", "A-705"]
 
                     if is_refuge:
-                        cols[i].markdown(f"<div class='grid-box refuge-style'>REFUGE</div>", unsafe_allow_html=True)
+                        cols[i].markdown(f"<div class='status-box' style='background:#262730; color:#555; border:1px solid #444;'>REFUGE</div>", unsafe_allow_html=True)
                     elif is_sold:
-                        cols[i].markdown(f"<div class='grid-box sold-style'>{unit_id}</div>", unsafe_allow_html=True)
+                        cols[i].markdown(f"<div class='status-box' style='background:#28a745; color:white;'>{unit_id}</div>", unsafe_allow_html=True)
                     elif is_locked:
-                        cols[i].markdown(f"<div class='grid-box busy-style'>{unit_id}</div>", unsafe_allow_html=True)
+                        cols[i].markdown(f"<div class='status-box' style='background:#ffc107; color:black;'>{unit_id}</div>", unsafe_allow_html=True)
                     else:
                         if cols[i].button(unit_id, key=unit_id):
                             st.session_state.selected_unit = unit_id
                             st.rerun()
-                st.write("") # Floor divider for spacing
-
-        # PAGE 2: ORIGINAL ON-SCREEN COST SHEET
+        
+        # --- SCREEN 2: ORIGINAL ON-SCREEN COST SHEET ---
         else:
             search_id = st.session_state.selected_unit
             if st.button("⬅️ Back to Layout"):
