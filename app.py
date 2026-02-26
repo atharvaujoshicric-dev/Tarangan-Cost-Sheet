@@ -127,34 +127,51 @@ def create_pdf(unit_id, floor, carpet, costs, cust_name, date_str, use_parking):
 
     return pdf.output(dest='S').encode('latin-1')
 
-# --- 5. UI SETUP & CSS ---
+# --- 5. UI SETUP & CSS FIXES ---
 st.set_page_config(page_title="Tarangan Dashboard", layout="centered")
 
-# Unified CSS for absolute sizing parity
+# This CSS ensures that both buttons and markdown divs occupy the EXACT SAME space.
 st.markdown("""
     <style>
-    /* Reset and standardize all potential grid elements */
+    /* Standardize height, width, and spacing for ALL grid elements */
     div.stButton > button, .grid-box {
-        height: 48px !important;
+        height: 50px !important;
         width: 100% !important;
-        min-height: 48px !important;
-        max-height: 48px !important;
+        min-height: 50px !important;
+        max-height: 50px !important;
         margin: 0px !important;
         padding: 0px !important;
         display: flex !important;
         align-items: center !important;
         justify-content: center !important;
-        border-radius: 6px !important;
+        border-radius: 4px !important;
         box-sizing: border-box !important;
         font-weight: bold !important;
-        font-size: 13px !important;
+        font-size: 12px !important;
         text-align: center !important;
         line-height: normal !important;
     }
-    /* Specific classes for colored boxes */
-    .grid-box.refuge { background:#2a2b36; color:#5c5d6b; border: 1px solid #3d3e4d; }
-    .grid-box.sold { background:#28a745; color:white; border: 1px solid transparent; }
-    .grid-box.busy { background:#ffc107; color:black; border: 1px solid transparent; }
+    
+    /* Refuge styling to match standard grid box dimensions */
+    .grid-box.refuge { 
+        background: #2b2c36; 
+        color: #5c5d6b; 
+        border: 1px solid #3d3e4d; 
+    }
+    
+    /* Sold styling to match standard grid box dimensions */
+    .grid-box.sold { 
+        background: #28a745; 
+        color: white; 
+        border: 1px solid transparent; 
+    }
+    
+    /* Busy styling to match standard grid box dimensions */
+    .grid-box.busy { 
+        background: #ffc107; 
+        color: black; 
+        border: 1px solid transparent; 
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -197,7 +214,7 @@ def release_unit_callback(unit_to_release):
     if unit_to_release in storage["locks"]:
         del storage["locks"][unit_to_release]
 
-# --- 7. MAIN APP LOGIC ---
+# --- 7. MAIN LOGIC ---
 if 'authenticated' not in st.session_state: st.session_state.authenticated = False
 if 'selected_unit' not in st.session_state: st.session_state.selected_unit = None
 
@@ -217,11 +234,13 @@ else:
         st.title("🛠️ Admin Dashboard")
         if st.button("⚠️ Reset System"): storage["locks"].clear(); storage["sold_units"].clear(); storage["download_history"].clear(); st.rerun()
     else:
-        # SCREEN 1: UNIFORM GRID LAYOUT
+        # SCREEN 1: UNIT LAYOUT
         if st.session_state.selected_unit is None:
             st.title("🏙️ Tarangan Sales Portal")
             inventory = load_data()
-            for f in range(1, 14): # Floor 1 to 13
+            
+            # Floor 1 to 13 Grid
+            for f in range(1, 14):
                 cols = st.columns(6)
                 for i, u_num in enumerate(range(1, 7)):
                     unit_id = f"A-{f}{u_num:02d}"
@@ -239,9 +258,9 @@ else:
                         if cols[i].button(unit_id, key=unit_id):
                             st.session_state.selected_unit = unit_id
                             st.rerun()
-                st.write("") # Floor Spacing
+                st.write("") 
 
-        # SCREEN 2: ORIGINAL ON-SCREEN COST SHEET
+        # SCREEN 2: ON-SCREEN COST SHEET
         else:
             search_id = st.session_state.selected_unit
             if st.button("⬅️ Back to Layout"):
@@ -272,7 +291,6 @@ else:
                 
                 res = calculate_negotiation(base_agr, d_val, p_d_val, use_p, is_f)
 
-                # ORIGINAL HTML DISPLAY
                 st.markdown(f"""
                     <div style="background:white; padding:30px; border:2px solid black; color:black; font-family:monospace;">
                         <div style="text-align:right;">Date: {today_str}</div>
