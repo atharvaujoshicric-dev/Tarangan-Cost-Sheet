@@ -130,32 +130,39 @@ def create_pdf(unit_id, floor, carpet, costs, cust_name, date_str, use_parking):
 # --- 5. UI SETUP ---
 st.set_page_config(page_title="Tarangan Dashboard", layout="centered")
 
-# CSS to ensure Buttons and Divs have IDENTICAL sizing/padding
+# Unified CSS for exact sizing of all grid components
 st.markdown("""
     <style>
-    /* Force buttons to a fixed height and remove extra padding */
     div.stButton > button { 
-        height: 45px !important; 
+        height: 50px !important; 
         width: 100% !important; 
         margin: 0px !important; 
         padding: 0px !important;
         display: flex !important;
         align-items: center !important;
         justify-content: center !important;
+        border-radius: 4px !important;
+        box-sizing: border-box !important;
     }
-    /* Force Divs (Status boxes) to match button height exactly */
     .grid-box {
-        display: flex; 
-        align-items: center; 
-        justify-content: center;
-        height: 45px; 
-        width: 100%; 
-        border-radius: 4px;
-        font-weight: bold; 
-        font-size: 13px; 
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        height: 50px !important; 
+        width: 100% !important; 
+        border-radius: 4px !important;
+        font-weight: bold !important; 
+        font-size: 13px !important; 
         margin: 0px !important;
-        box-sizing: border-box;
+        padding: 0px !important;
+        box-sizing: border-box !important;
+        border: 1px solid transparent;
+        line-height: 50px !important;
+        text-align: center;
     }
+    .refuge-style { background-color: #262730; color: #555; border: 1px solid #444; }
+    .sold-style { background-color: #28a745; color: white; }
+    .busy-style { background-color: #ffc107; color: black; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -165,7 +172,7 @@ def load_data():
     df.columns = [str(c).strip() for c in df.columns]
     return df
 
-# --- 6. POP-UP DIALOG & CALLBACKS ---
+# --- 6. DIALOGS & CALLBACKS ---
 @st.dialog("Booking Confirmation")
 def download_dialog(unit_id, floor, carpet, costs, cust_name, date_str, use_parking, ist_log_time):
     st.write(f"Confirming booking for **Unit {unit_id}**")
@@ -216,13 +223,11 @@ else:
         st.title("🛠️ Admin Dashboard")
         if st.button("⚠️ Reset System"): storage["locks"].clear(); storage["sold_units"].clear(); storage["download_history"].clear(); st.rerun()
     else:
-        # --- PAGE 1: GRID LAYOUT ---
+        # PAGE 1: GRID
         if st.session_state.selected_unit is None:
             st.title("🏙️ Tarangan Sales Portal")
             inventory = load_data()
-            
-            # Floors 1 (Top) to 13 (Bottom)
-            for f in range(1, 14):
+            for f in range(1, 14): # Floor 1 to 13
                 cols = st.columns(6)
                 for i, u_num in enumerate(range(1, 7)):
                     unit_id = f"A-{f}{u_num:02d}"
@@ -231,17 +236,18 @@ else:
                     is_refuge = unit_id in ["A-1205", "A-705"]
 
                     if is_refuge:
-                        cols[i].markdown(f"<div class='grid-box' style='background:#262730; color:#555; border:1px solid #444;'>REFUGE</div>", unsafe_allow_html=True)
+                        cols[i].markdown(f"<div class='grid-box refuge-style'>REFUGE</div>", unsafe_allow_html=True)
                     elif is_sold:
-                        cols[i].markdown(f"<div class='grid-box' style='background:#28a745; color:white;'>{unit_id}</div>", unsafe_allow_html=True)
+                        cols[i].markdown(f"<div class='grid-box sold-style'>{unit_id}</div>", unsafe_allow_html=True)
                     elif is_locked:
-                        cols[i].markdown(f"<div class='grid-box' style='background:#ffc107; color:black;'>{unit_id}</div>", unsafe_allow_html=True)
+                        cols[i].markdown(f"<div class='grid-box busy-style'>{unit_id}</div>", unsafe_allow_html=True)
                     else:
                         if cols[i].button(unit_id, key=unit_id):
                             st.session_state.selected_unit = unit_id
                             st.rerun()
+                st.write("") # Floor divider for spacing
 
-        # --- PAGE 2: ORIGINAL COST SHEET ---
+        # PAGE 2: ORIGINAL ON-SCREEN COST SHEET
         else:
             search_id = st.session_state.selected_unit
             if st.button("⬅️ Back to Layout"):
