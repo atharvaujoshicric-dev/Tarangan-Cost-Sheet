@@ -57,7 +57,7 @@ def calculate_negotiation(initial_agreement, pkg_discount=0, park_discount=0, us
         "Combined_Discount": int(pkg_discount + park_discount)
     }
 
-# --- 4. PDF GENERATION (EXACT ORIGINAL) ---
+# --- 4. PDF GENERATION ---
 def create_pdf(unit_id, floor, carpet, costs, cust_name, date_str, use_parking):
     pdf = FPDF()
     copies = ["Customer's Copy", "Sales Copy"]
@@ -132,13 +132,37 @@ st.set_page_config(page_title="Tarangan Dashboard", layout="centered")
 
 st.markdown("""
     <style>
-    /* Fixed height for everything to keep grid perfect */
-    div.stButton > button { height: 45px !important; width: 100% !important; margin: 0px !important; }
-    .status-box {
-        display: flex; align-items: center; justify-content: center;
-        height: 45px; width: 100%; border-radius: 4px;
-        font-weight: bold; font-size: 13px; margin: 0px !important;
-        text-align: center; border: 1px solid transparent;
+    /* Force buttons and divs to IDENTICAL dimensions and spacing */
+    div.stButton > button {
+        height: 50px !important;
+        width: 100% !important;
+        margin: 0px !important;
+        padding: 0px !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        border-radius: 4px !important;
+        font-weight: bold !important;
+        font-size: 13px !important;
+    }
+    .grid-box {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        height: 50px !important;
+        width: 100% !important;
+        margin: 0px !important;
+        padding: 0px !important;
+        border-radius: 4px !important;
+        font-weight: bold !important;
+        font-size: 13px !important;
+        box-sizing: border-box !important;
+        line-height: 50px !important;
+        border: 1px solid transparent;
+    }
+    /* Horizontal spacing between columns */
+    div[data-testid="column"] {
+        padding: 0 5px !important;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -179,7 +203,8 @@ def download_dialog(unit_id, floor, carpet, costs, cust_name, date_str, use_park
 
 def release_unit_callback(unit_to_release):
     st.session_state.selected_unit = None
-    if unit_to_release in storage["locks"]: del storage["locks"][unit_to_release]
+    if unit_to_release in storage["locks"]:
+        del storage["locks"][unit_to_release]
 
 # --- 7. MAIN LOGIC ---
 if 'authenticated' not in st.session_state: st.session_state.authenticated = False
@@ -199,12 +224,10 @@ else:
         st.title("🛠️ Admin Dashboard")
         if st.button("⚠️ Reset System"): storage["locks"].clear(); storage["sold_units"].clear(); storage["download_history"].clear(); st.rerun()
     else:
-        # --- SCREEN 1: UNIT LAYOUT ---
+        # SCREEN 1: LAYOUT
         if st.session_state.selected_unit is None:
             st.title("🏙️ Tarangan Sales Portal")
             inventory = load_data()
-            
-            # Start Floor 1 at Top, Floor 13 at Bottom
             for f in range(1, 14):
                 cols = st.columns(6)
                 for i, u_num in enumerate(range(1, 7)):
@@ -214,17 +237,18 @@ else:
                     is_refuge = unit_id in ["A-1205", "A-705"]
 
                     if is_refuge:
-                        cols[i].markdown(f"<div class='status-box' style='background:#262730; color:#555; border:1px solid #444;'>REFUGE</div>", unsafe_allow_html=True)
+                        cols[i].markdown(f"<div class='grid-box' style='background:#2d2d34; color:#666; border:1px solid #444;'>REFUGE</div>", unsafe_allow_html=True)
                     elif is_sold:
-                        cols[i].markdown(f"<div class='status-box' style='background:#28a745; color:white;'>{unit_id}</div>", unsafe_allow_html=True)
+                        cols[i].markdown(f"<div class='grid-box' style='background:#28a745; color:white;'>{unit_id}</div>", unsafe_allow_html=True)
                     elif is_locked:
-                        cols[i].markdown(f"<div class='status-box' style='background:#ffc107; color:black;'>{unit_id}</div>", unsafe_allow_html=True)
+                        cols[i].markdown(f"<div class='grid-box' style='background:#ffc107; color:black;'>{unit_id}</div>", unsafe_allow_html=True)
                     else:
                         if cols[i].button(unit_id, key=unit_id):
                             st.session_state.selected_unit = unit_id
                             st.rerun()
-        
-        # --- SCREEN 2: ORIGINAL ON-SCREEN COST SHEET ---
+                st.write("") 
+
+        # SCREEN 2: ON-SCREEN COST SHEET
         else:
             search_id = st.session_state.selected_unit
             if st.button("⬅️ Back to Layout"):
@@ -237,7 +261,6 @@ else:
                 row = match.iloc[0]
                 base_agr, carpet_area = clean_numeric(row.get('Agreement Value', 0)), row.get('CARPET','N/A')
                 cust_name = st.text_input("👤 Customer Name:")
-                
                 ist_now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=5, minutes=30)))
                 today_str, today_full_log = ist_now.strftime("%d/%m/%Y"), ist_now.strftime("%d/%m/%Y %H:%M:%S")
 
@@ -255,7 +278,6 @@ else:
                 
                 res = calculate_negotiation(base_agr, d_val, p_d_val, use_p, is_f)
 
-                # EXACT ORIGINAL ON-SCREEN COST SHEET
                 st.markdown(f"""
                     <div style="background:white; padding:30px; border:2px solid black; color:black; font-family:monospace;">
                         <div style="text-align:right;">Date: {today_str}</div>
