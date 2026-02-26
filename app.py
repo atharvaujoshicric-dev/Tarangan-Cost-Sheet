@@ -130,17 +130,17 @@ def create_pdf(unit_id, floor, carpet, costs, cust_name, date_str, use_parking):
 # --- 5. UI SETUP & CSS ---
 st.set_page_config(page_title="Tarangan Dashboard", layout="centered")
 
-# This CSS targets Streamlit's internal button styling to force uniform height and width
+# Unified CSS for absolute sizing parity
 st.markdown("""
     <style>
-    /* Uniform container for grid items */
-    div.stButton > button, div.stMarkdown > div > div.grid-box {
-        min-height: 50px !important;
-        max-height: 50px !important;
-        height: 50px !important;
+    /* Standardize all grid items to have the same height and borders */
+    div.stButton > button, .grid-box {
+        min-height: 48px !important;
+        max-height: 48px !important;
+        height: 48px !important;
         width: 100% !important;
-        padding: 0 !important;
-        margin: 0 !important;
+        margin: 0px !important;
+        padding: 0px !important;
         display: flex !important;
         align-items: center !important;
         justify-content: center !important;
@@ -148,14 +148,13 @@ st.markdown("""
         box-sizing: border-box !important;
         font-weight: bold !important;
         font-size: 13px !important;
-    }
-    .grid-box {
-        text-align: center;
+        text-align: center !important;
+        line-height: normal !important;
         border: 1px solid rgba(255, 255, 255, 0.2);
     }
-    .grid-box.refuge { background: #2b2c36; color: #5c5d6b; border-color: #3d3e4d; }
-    .grid-box.sold { background: #28a745; color: white; }
-    .grid-box.busy { background: #ffc107; color: black; }
+    .grid-box.refuge { background: #2a2b36; color: #5c5d6b; border: 1px solid #3d3e4d; }
+    .grid-box.sold { background: #28a745; color: white; border: none; }
+    .grid-box.busy { background: #ffc107; color: black; border: none; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -165,40 +164,30 @@ def load_data():
     df.columns = [str(c).strip() for c in df.columns]
     return df
 
-# --- 6. POP-UP DIALOG & CALLBACKS ---
+# --- 6. DIALOGS & CALLBACKS ---
 @st.dialog("Booking Confirmation")
 def download_dialog(unit_id, floor, carpet, costs, cust_name, date_str, use_parking, ist_log_time):
     st.write(f"Confirming booking for **Unit {unit_id}**")
     sales_name = st.text_input("Enter Sales Person Name:")
     if st.button("Confirm & Download"):
         if not sales_name.strip():
-            st.error("Please enter Sales Person Name to proceed.")
+            st.error("Please enter Sales Person Name.")
         else:
             pdf_bytes = create_pdf(unit_id, floor, carpet, costs, cust_name, date_str, use_parking)
             storage["download_history"].append({
                 "Timestamp (IST)": ist_log_time, "Sales Person": sales_name,
                 "Login User": st.session_state.get('user_id', 'Unknown'),
                 "Flat ID": unit_id, "Customer": cust_name if cust_name else "N/A",
-                "Agreement": format_indian_currency(costs['Final Agreement']),
-                "Stamp Duty": format_indian_currency(costs['Stamp Duty']),
-                "GST": format_indian_currency(costs['GST']),
-                "Registration": format_indian_currency(costs['Registration']),
-                "TOTAL": format_indian_currency(costs['Total']),
-                "Discount": format_indian_currency(costs['Combined_Discount'])
+                "TOTAL": format_indian_currency(costs['Total'])
             })
             storage["sold_units"].add(unit_id)
-            st.success("Unit Blocked Successfully!")
-            st.download_button(label="📥 Click here to save PDF", data=pdf_bytes, file_name=f"Tarangan_{unit_id}.pdf", mime="application/pdf")
-            if st.button("Close"): 
+            st.success("Unit Blocked!")
+            st.download_button(label="📥 Save PDF", data=pdf_bytes, file_name=f"Tarangan_{unit_id}.pdf", mime="application/pdf")
+            if st.button("Finish"): 
                 st.session_state.selected_unit = None
                 st.rerun()
 
-def release_unit_callback(unit_to_release):
-    st.session_state.selected_unit = None
-    if unit_to_release in storage["locks"]:
-        del storage["locks"][unit_to_release]
-
-# --- 7. MAIN ---
+# --- 7. MAIN APP LOGIC ---
 if 'authenticated' not in st.session_state: st.session_state.authenticated = False
 if 'selected_unit' not in st.session_state: st.session_state.selected_unit = None
 
@@ -210,13 +199,15 @@ if not st.session_state.authenticated:
             st.session_state.authenticated, st.session_state.role, st.session_state.user_id = True, ("admin" if u == "Tarangan" else "user"), u
             st.rerun()
 else:
-    if st.sidebar.button("Logout"): st.session_state.authenticated = False; st.rerun()
+    if st.sidebar.button("Logout"): 
+        st.session_state.authenticated = False
+        st.rerun()
 
     if st.session_state.role == "admin":
         st.title("🛠️ Admin Dashboard")
         if st.button("⚠️ Reset System"): storage["locks"].clear(); storage["sold_units"].clear(); storage["download_history"].clear(); st.rerun()
     else:
-        # SCREEN 1: GRID
+        # SCREEN 1: GRID LAYOUT
         if st.session_state.selected_unit is None:
             st.title("🏙️ Tarangan Sales Portal")
             inventory = load_data()
@@ -253,6 +244,7 @@ else:
                 row = match.iloc[0]
                 base_agr, carpet_area = clean_numeric(row.get('Agreement Value', 0)), row.get('CARPET','N/A')
                 cust_name = st.text_input("👤 Customer Name:")
+                
                 ist_now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=5, minutes=30)))
                 today_str, today_full_log = ist_now.strftime("%d/%m/%Y"), ist_now.strftime("%d/%m/%Y %H:%M:%S")
 
@@ -270,7 +262,6 @@ else:
                 
                 res = calculate_negotiation(base_agr, d_val, p_d_val, use_p, is_f)
 
-                # EXACT ORIGINAL ON-SCREEN COST SHEET
                 st.markdown(f"""
                     <div style="background:white; padding:30px; border:2px solid black; color:black; font-family:monospace;">
                         <div style="text-align:right;">Date: {today_str}</div>
@@ -291,5 +282,3 @@ else:
                 with col_d:
                     if st.button("📥 Download PDF & Block"):
                         download_dialog(search_id, row.get('Floor','N/A'), carpet_area, res, cust_name, today_str, use_p, today_full_log)
-                with col_r:
-                    st.button("❌ Clear & Release Unit", on_click=release_unit_callback, args=(search_id,))
