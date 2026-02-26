@@ -96,7 +96,23 @@ def create_pdf(unit_id, floor, carpet, costs, cust_name, date_str, use_parking):
         except: pass
         
         pdf.ln(2); pdf.set_font("Arial", 'B', 8); pdf.cell(0, 5, "TERMS & CONDITIONS:", ln=True); pdf.set_font("Arial", '', 6.0)
-        tc_lines = ["1. Advocate charges will be Rs. 15,000/-.", "2. Agreement within 15 days.", "3. All inclusive.", "4. Gov taxes apply.", "5. RERA area basis.", "6. Legal in Sqm.", "7. PCMC Jurisdiction.", "8. Maint Rs.3/sqft.", "9. Loan responsibility customer.", "10. Prices subject to change.", "11. Non-transferable.", "12. Good faith.", "13. Actual taxes apply.", "14. KYC Req.", "15. Ext Bank fee 25k."]
+        tc_lines = [
+            "1. Advocate charges will be Rs. 15,000/-.",
+            "2. Agreement to be executed & registered within 15 days from the date of booking.",
+            "3. The total cost mentioned here is all inclusive of GST, Registration, Stamp Duty and Legal charges",
+            "4. GST, Stamp Duty, Registration and all applicable government charges are as per the current rates, and in future may change as per government notification which would be borne by the customer.",
+            "5. Above areas are shown in square feet only to make it easy for the purchaser to understand. The sale of the said unit is on the basis of RERA carpet area only.",
+            "6. All legal documents will be executed in square meter only.",
+            "7. Subject to PCMC jurisdiction.",
+            "8. Society Maintenance at Rs. 3 per sq.ft. per month for 2 years and will be taken at the time of possession.",
+            "9. Loan facility available from all leading banks and home loan sanctioning is customers responsibility, developer however will assist in the process.",
+            "10. The promoters reserve the right to change the above prices and the offer given at any time without prior notice. No verbal commitments to be accepted post booking.",
+            "11. Booking is non-transferable.",
+            "12. The information on this paper is provided in good faith and does not constitute part of the contract.",
+            "13. Government taxes will be applicable at actual. Also, any other taxes not mentioned herein if levied later would be payable at actuals by the purchaser.",
+            "14. Documents required: PAN Card, Adhar Card, Photocopy.",
+            "15. If an external bank is opted for loan processing, an additional charge of Rs. 25,000/- shall be applicable and payable by the purchaser."
+        ]
         for line in tc_lines: pdf.multi_cell(0, 3.2, line)
         
         page_height, footer_y = pdf.h, pdf.h - 18 - 32
@@ -104,20 +120,25 @@ def create_pdf(unit_id, floor, carpet, costs, cust_name, date_str, use_parking):
         try:
             pdf.image("mahalaxmi_logo.png", x=10, y=footer_y, h=15); pdf.image("bw_logo.png", x=35, y=footer_y, h=15)
         except:
-            pdf.set_font("Arial", 'I', 7); pdf.set_xy(10, footer_y); pdf.cell(60, 10, "[Logos]", ln=0)
+            pdf.set_font("Arial", 'I', 7); pdf.set_xy(10, footer_y); pdf.cell(60, 10, "[Logos Here]", ln=0)
         pdf.set_xy(0, footer_y + 5); pdf.set_font("Arial", 'B', 12); pdf.cell(210, 10, "Contact: 080 6452 3034", align='C')
         pdf.set_xy(150, footer_y); pdf.cell(45, 18, "", border=1)
         pdf.set_xy(150, footer_y + 19); pdf.set_font("Arial", '', 7); pdf.cell(45, 5, "Customer Signature", align='C')
 
     return pdf.output(dest='S').encode('latin-1')
 
-# --- 5. UI SETUP & CSS ---
+# --- 5. UI SETUP ---
 st.set_page_config(page_title="Tarangan Dashboard", layout="centered")
 
+# CSS to fix indentation and size issues
 st.markdown("""
     <style>
-    div.stButton > button { height: 40px !important; width: 100% !important; margin: 0px !important; }
-    .grid-box { display: flex; align-items: center; justify-content: center; height: 40px; width: 100%; border-radius: 4px; font-weight: bold; font-size: 11px; margin-bottom: 2px; }
+    div.stButton > button { height: 45px !important; width: 100% !important; margin: 0px !important; }
+    .grid-box {
+        display: flex; align-items: center; justify-content: center;
+        height: 45px; width: 100%; border-radius: 4px;
+        font-weight: bold; font-size: 13px; margin: 0px !important;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -127,29 +148,43 @@ def load_data():
     df.columns = [str(c).strip() for c in df.columns]
     return df
 
-# --- 6. DIALOGS ---
+# --- 6. POP-UP DIALOG & CALLBACKS ---
 @st.dialog("Booking Confirmation")
 def download_dialog(unit_id, floor, carpet, costs, cust_name, date_str, use_parking, ist_log_time):
     st.write(f"Confirming booking for **Unit {unit_id}**")
     sales_name = st.text_input("Enter Sales Person Name:")
+    
     if st.button("Confirm & Download"):
         if not sales_name.strip():
-            st.error("Sales Person Name required.")
+            st.error("Please enter Sales Person Name to proceed.")
         else:
             pdf_bytes = create_pdf(unit_id, floor, carpet, costs, cust_name, date_str, use_parking)
-            storage["download_history"].append({"Timestamp (IST)": ist_log_time, "Sales Person": sales_name, "Login User": st.session_state.get('user_id', 'Unknown'), "Flat ID": unit_id, "Customer": cust_name if cust_name else "N/A", "TOTAL": format_indian_currency(costs['Total'])})
+            storage["download_history"].append({
+                "Timestamp (IST)": ist_log_time,
+                "Sales Person": sales_name,
+                "Login User": st.session_state.get('user_id', 'Unknown'),
+                "Flat ID": unit_id,
+                "Customer": cust_name if cust_name else "N/A",
+                "Agreement": format_indian_currency(costs['Final Agreement']),
+                "Stamp Duty": format_indian_currency(costs['Stamp Duty']),
+                "GST": format_indian_currency(costs['GST']),
+                "Registration": format_indian_currency(costs['Registration']),
+                "TOTAL": format_indian_currency(costs['Total']),
+                "Discount": format_indian_currency(costs['Combined_Discount'])
+            })
             storage["sold_units"].add(unit_id)
-            st.success("Blocked Successfully!")
-            st.download_button(label="📥 Save PDF", data=pdf_bytes, file_name=f"Tarangan_{unit_id}.pdf", mime="application/pdf")
-            if st.button("Finish"): 
+            st.success("Unit Blocked Successfully!")
+            st.download_button(label="📥 Click here to save PDF", data=pdf_bytes, file_name=f"Tarangan_{unit_id}.pdf", mime="application/pdf")
+            if st.button("Close"): 
                 st.session_state.selected_unit = None
                 st.rerun()
 
 def release_unit_callback(unit_to_release):
     st.session_state.selected_unit = None
-    if unit_to_release in storage["locks"]: del storage["locks"][unit_to_release]
+    if unit_to_release in storage["locks"]:
+        del storage["locks"][unit_to_release]
 
-# --- 7. MAIN LOGIC ---
+# --- 7. LOGIN & MAIN ---
 if 'authenticated' not in st.session_state: st.session_state.authenticated = False
 if 'selected_unit' not in st.session_state: st.session_state.selected_unit = None
 
@@ -166,18 +201,16 @@ else:
 
     if st.session_state.role == "admin":
         st.title("🛠️ Admin Dashboard")
+        # Admin logic stays original
         if st.button("⚠️ Reset System"): storage["locks"].clear(); storage["sold_units"].clear(); storage["download_history"].clear(); st.rerun()
-        st.write("Sold Units:", list(storage["sold_units"]))
     else:
-        # --- VIEW 1: LAYOUT ---
+        # PAGE 1: GRID
         if st.session_state.selected_unit is None:
             st.title("🏙️ Tarangan Sales Portal")
             inventory = load_data()
-            st.subheader("Select Flat (A-101 to A-1306)")
             
-            # Floors 13 down to 1
-            floors = range(13, 0, -1)
-            for f in floors:
+            # Floors 1 (Top) to 13 (Bottom)
+            for f in range(1, 14):
                 cols = st.columns(6)
                 for i, u_num in enumerate(range(1, 7)):
                     unit_id = f"A-{f}{u_num:02d}"
@@ -186,7 +219,7 @@ else:
                     is_refuge = unit_id in ["A-1205", "A-705"]
 
                     if is_refuge:
-                        cols[i].markdown(f"<div class='grid-box' style='background:#262730; color:#555; border:1px solid #444;'>REFUGE</div>", unsafe_allow_html=True)
+                        cols[i].markdown(f"<div class='grid-box' style='background:#262730; color:#555; border:1px solid #444;'>REFUGE {unit_id}</div>", unsafe_allow_html=True)
                     elif is_sold:
                         cols[i].markdown(f"<div class='grid-box' style='background:#28a745; color:white;'>{unit_id}</div>", unsafe_allow_html=True)
                     elif is_locked:
@@ -195,46 +228,47 @@ else:
                         if cols[i].button(unit_id, key=unit_id):
                             st.session_state.selected_unit = unit_id
                             st.rerun()
-        
-        # --- VIEW 2: COST SHEET (Next Page) ---
+
+        # PAGE 2: COST SHEET
         else:
             search_id = st.session_state.selected_unit
-            st.title(f"📄 Cost Sheet: {search_id}")
             if st.button("⬅️ Back to Layout"):
                 st.session_state.selected_unit = None
                 st.rerun()
 
             inventory = load_data()
             match = inventory[inventory['ID'].astype(str).str.upper() == search_id]
-            
             if not match.empty:
                 row = match.iloc[0]
                 base_agr, carpet_area = clean_numeric(row.get('Agreement Value', 0)), row.get('CARPET','N/A')
-                
                 cust_name = st.text_input("👤 Customer Name:")
+                
+                # ... Rest of your original Negotiation / HTML logic ...
                 c1, c2, c3 = st.columns(3)
                 with c1:
                     use_d = st.checkbox("Discount")
-                    d_val = st.number_input("Amt:", value=0, step=1000) if use_d else 0
+                    d_raw = st.number_input("Amt:", value=None, step=1000) if use_d else 0
+                    d_val = d_raw if d_raw is not None else 0
                 with c2:
                     use_p = st.checkbox("Parking")
-                    p_d_val = st.number_input("Park Disc:", value=0, max_value=100000) if use_p else 0
+                    p_raw = st.number_input("Park Disc:", value=None, min_value=0, max_value=100000, step=1000) if use_p else 0
+                    p_d_val = p_raw if p_raw is not None else 0
                 with c3: is_f = st.checkbox("Female")
                 
                 res = calculate_negotiation(base_agr, d_val, p_d_val, use_p, is_f)
                 ist_now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=5, minutes=30)))
-                
+                today_str, today_full_log = ist_now.strftime("%d/%m/%Y"), ist_now.strftime("%d/%m/%Y %H:%M:%S")
+
                 st.markdown(f"""
                     <div style="background:white; padding:30px; border:2px solid black; color:black; font-family:monospace;">
-                        <div style="text-align:right;">Date: {ist_now.strftime("%d/%m/%Y")}</div>
+                        <div style="text-align:right;">Date: {today_str}</div>
                         <h2 style="text-align:center; border-bottom:2px solid black;">TARANGAN</h2>
+                        <p><b>Customer:</b> {cust_name if cust_name else '________________'}</p>
                         <p><b>Unit:</b> {search_id} | <b>Floor:</b> {row.get('Floor','N/A')} | <b>Carpet:</b> {carpet_area} sqft</p>
                         <div style="display:flex; justify-content:space-between; border-bottom:1px dotted #888; padding:5px 0;"><span>Agreement</span><span>Rs. {format_indian_currency(res['Final Agreement'])}</span></div>
                         <div style="display:flex; justify-content:space-between; font-weight:bold; font-size:1.2em; border-top:2px solid black; margin-top:10px; padding:10px 0;"><span>TOTAL</span><span>Rs. {format_indian_currency(res['Total'])}</span></div>
                     </div>
                 """, unsafe_allow_html=True)
-                
+
                 if st.button("📥 Download PDF & Block"):
-                    download_dialog(search_id, row.get('Floor','N/A'), carpet_area, res, cust_name, ist_now.strftime("%d/%m/%Y"), use_p, ist_now.strftime("%H:%M:%S"))
-            else:
-                st.error("Data for this unit not found in Google Sheets.")
+                    download_dialog(search_id, row.get('Floor','N/A'), carpet_area, res, cust_name, today_str, use_p, today_full_log)
