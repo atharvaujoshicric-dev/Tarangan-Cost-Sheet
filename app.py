@@ -193,14 +193,7 @@ else:
         # --- SALES PORTAL TOGGLE ---
         if st.session_state.selected_unit is None:
             st.title("🏙️ Tarangan Sales Portal")
-            
-            # Compact Legend
-            l_cols = st.columns(4)
-            l_cols[0].markdown("🟩 **Sold**")
-            l_cols[1].markdown("🟨 **Busy**")
-            l_cols[2].markdown("⬜ **Available**")
-            l_cols[3].markdown("⬛ **Refuge**")
-            
+    
             inventory = load_data()
             
             # GRID: 13 Floors x 6 Units
