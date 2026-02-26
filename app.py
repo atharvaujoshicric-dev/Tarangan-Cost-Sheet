@@ -130,6 +130,28 @@ def create_pdf(unit_id, floor, carpet, costs, cust_name, date_str, use_parking):
 # --- 5. UI SETUP ---
 st.set_page_config(page_title="Tarangan Dashboard", layout="centered")
 
+# Custom CSS for uniform grid box sizes
+st.markdown("""
+    <style>
+    div.stButton > button {
+        height: 45px !important;
+        width: 100% !important;
+        margin: 0px !important;
+    }
+    .grid-box {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 45px;
+        width: 100%;
+        border-radius: 4px;
+        font-weight: bold;
+        font-size: 13px;
+        margin-bottom: 0px;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
 @st.cache_data(ttl=2)
 def load_data():
     df = pd.read_csv(CSV_URL)
@@ -223,30 +245,26 @@ else:
             for i, u_num in enumerate(units_per_floor):
                 unit_id = f"A-{f}{u_num:02d}"
                 
-                # Check States
                 is_sold = unit_id in storage["sold_units"]
                 is_locked = unit_id in storage["locks"] and storage["locks"][unit_id] != st.runtime.scriptrunner.get_script_run_ctx().session_id
                 is_refuge = unit_id in ["A-1205", "A-705"]
 
-                # Styling and Button logic
+                # Fixed-size box logic using HTML containers for status
                 if is_refuge:
-                    cols[i].button(f"REFUGE {unit_id}", key=unit_id, disabled=True, use_container_width=True)
+                    cols[i].markdown(f"<div class='grid-box' style='background-color:#262730; color:#555; border:1px solid #444;'>REFUGE {unit_id}</div>", unsafe_allow_html=True)
                 elif is_sold:
-                    # Green for Sold
-                    cols[i].markdown(f"**<div style='background-color:#28a745; color:white; border-radius:4px; padding:10px; text-align:center; font-size:14px;'>{unit_id}</div>**", unsafe_allow_html=True)
+                    cols[i].markdown(f"<div class='grid-box' style='background-color:#28a745; color:white;'>{unit_id}</div>", unsafe_allow_html=True)
                 elif is_locked:
-                    # Yellow for Busy
-                    cols[i].markdown(f"**<div style='background-color:#ffc107; color:black; border-radius:4px; padding:10px; text-align:center; font-size:14px;'>{unit_id}</div>**", unsafe_allow_html=True)
+                    cols[i].markdown(f"<div class='grid-box' style='background-color:#ffc107; color:black;'>{unit_id}</div>", unsafe_allow_html=True)
                 else:
                     if cols[i].button(unit_id, key=unit_id, use_container_width=True):
                         st.session_state.selected_unit = unit_id
-            st.write("") # Floor spacing
+            st.write("") 
 
         # --- ORIGINAL NEGOTIATION LOGIC ---
         if st.session_state.selected_unit:
             search_id = st.session_state.selected_unit
             
-            # Final Safety Lock Check
             if search_id in storage["locks"] and storage["locks"][search_id] != st.runtime.scriptrunner.get_script_run_ctx().session_id:
                 st.error("⚠️ Unit Busy.")
                 st.stop()
