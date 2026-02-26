@@ -130,46 +130,43 @@ def create_pdf(unit_id, floor, carpet, costs, cust_name, date_str, use_parking):
 # --- 5. UI SETUP ---
 st.set_page_config(page_title="Tarangan Dashboard", layout="centered")
 
-# Unified CSS for absolute parity in grid sizing
-    <style>
-    /* 1. Reset Column Padding to keep the grid tight */
+# Unified CSS for absolute sizing parity
+st.markdown("""
+<style>
     [data-testid="column"] {
-        padding: 2px !important;
+        padding: 1px !important;
+        margin: 0px !important;
     }
-
-    /* 2. Force Streamlit Buttons to a fixed height and center content */
     div.stButton > button {
-        height: 40px !important;
+        height: 42px !important;
         width: 100% !important;
         margin: 0px !important;
         padding: 0px !important;
         border-radius: 4px !important;
         font-weight: bold !important;
-        font-size: 12px !important;
+        font-size: 11px !important;
         display: flex !important;
         align-items: center !important;
         justify-content: center !important;
         box-sizing: border-box !important;
     }
-
-    /* 3. Force Markdown Divs (Sold/Refuge) to the EXACT same fixed height */
     .grid-box {
-        height: 40px !important;
+        height: 42px !important;
         width: 100% !important;
         margin: 0px !important;
         padding: 0px !important;
         border-radius: 4px !important;
         font-weight: bold !important;
-        font-size: 12px !important;
+        font-size: 11px !important;
         display: flex !important;
         align-items: center !important;
         justify-content: center !important;
         text-align: center !important;
         box-sizing: border-box !important;
-        /* Slight border to match the visual weight of buttons */
-        border: 1px solid rgba(255, 255, 255, 0.1); 
+        border: 1px solid rgba(255, 255, 255, 0.1);
     }
-    </style>, unsafe_allow_html=True)
+</style>
+""", unsafe_allow_html=True)
 
 @st.cache_data(ttl=2)
 def load_data():
@@ -244,21 +241,23 @@ else:
                     storage["sold_units"].remove(uid)
                     storage["download_history"] = [item for item in storage["download_history"] if item.get("Flat ID") != uid]
                     st.rerun()
-            if st.button("⚠️ Reset System"): storage["locks"].clear(); storage["sold_units"].clear(); storage["download_history"].clear(); st.rerun()
+            if st.button("⚠️ Reset System"): 
+                storage["locks"].clear()
+                storage["sold_units"].clear()
+                storage["download_history"].clear()
+                st.rerun()
         with t2:
             if storage["download_history"]:
                 df_hist = pd.DataFrame(storage["download_history"])
                 st.dataframe(df_hist, use_container_width=True)
                 csv = df_hist.to_csv(index=False).encode('utf-8')
-                st.download_button("Export IST CSV", csv, "history_ist.csv", "text/csv")
+                st.download_button("Export CSV", csv, "Tarangan_cost_sheets.csv", "text/csv")
             else: st.info("No records recorded yet.")
 
     else:
         # SCREEN 1: GRID LAYOUT
         if st.session_state.selected_unit is None:
             st.title("🏙️ Tarangan Sales Portal")
-            
-            # Floor 1 at top, Floor 13 at bottom
             for f in range(1, 14):
                 cols = st.columns(6)
                 for i, u_num in enumerate(range(1, 7)):
@@ -267,7 +266,6 @@ else:
                     is_locked = unit_id in storage["locks"] and storage["locks"][unit_id] != st.runtime.scriptrunner.get_script_run_ctx().session_id
                     is_refuge = unit_id in ["A-1205", "A-705"]
 
-                    # Important: Use columns directly inside a context to maintain layout parity
                     with cols[i]:
                         if is_refuge:
                             st.markdown(f"<div class='grid-box' style='background:#2a2b36; color:#5c5d6b;'>REFUGE</div>", unsafe_allow_html=True)
