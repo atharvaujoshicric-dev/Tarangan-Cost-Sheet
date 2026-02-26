@@ -130,41 +130,55 @@ def create_pdf(unit_id, floor, carpet, costs, cust_name, date_str, use_parking):
 # --- 5. UI SETUP ---
 st.set_page_config(page_title="Tarangan Dashboard", layout="centered")
 
-# Unified CSS for absolute sizing parity in the grid
+# CSS for absolute parity in grid alignment and sizing
 st.markdown("""
     <style>
+    /* Ensure the Streamlit button matches the custom div boxes */
     div.stButton > button {
-        height: 48px !important;
+        height: 45px !important;
         width: 100% !important;
         margin: 0px !important;
         padding: 0px !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        border-radius: 6px !important;
-    }
-    .grid-box {
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        height: 48px !important;
-        width: 100% !important;
-        border-radius: 6px !important;
+        border-radius: 4px !important;
         font-weight: bold !important;
         font-size: 13px !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+    }
+    
+    /* Ensure the custom markdown boxes match the button dimensions */
+    .grid-box {
+        height: 45px !important;
+        width: 100% !important;
         margin: 0px !important;
         padding: 0px !important;
+        border-radius: 4px !important;
+        font-weight: bold !important;
+        font-size: 13px !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        text-align: center !important;
         box-sizing: border-box !important;
-        border: 1px solid rgba(255, 255, 255, 0.2);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    /* Remove extra padding from streamlit columns to keep grid tight */
+    [data-testid="column"] {
+        padding: 2px !important;
     }
     </style>
 """, unsafe_allow_html=True)
 
 @st.cache_data(ttl=2)
 def load_data():
-    df = pd.read_csv(CSV_URL)
-    df.columns = [str(c).strip() for c in df.columns]
-    return df
+    try:
+        df = pd.read_csv(CSV_URL)
+        df.columns = [str(c).strip() for c in df.columns]
+        return df
+    except:
+        return pd.DataFrame(columns=['ID', 'Agreement Value', 'CARPET', 'Floor'])
 
 # --- 6. POP-UP DIALOG & CALLBACKS ---
 @st.dialog("Booking Confirmation")
@@ -243,7 +257,6 @@ else:
         # SCREEN 1: GRID LAYOUT
         if st.session_state.selected_unit is None:
             st.title("🏙️ Tarangan Sales Portal")
-            inventory = load_data()
             
             # Floor 1 at top, Floor 13 at bottom
             for f in range(1, 14):
@@ -254,17 +267,17 @@ else:
                     is_locked = unit_id in storage["locks"] and storage["locks"][unit_id] != st.runtime.scriptrunner.get_script_run_ctx().session_id
                     is_refuge = unit_id in ["A-1205", "A-705"]
 
-                    if is_refuge:
-                        cols[i].markdown(f"<div class='grid-box' style='background:#2a2b36; color:#5c5d6b;'>REFUGE</div>", unsafe_allow_html=True)
-                    elif is_sold:
-                        cols[i].markdown(f"<div class='grid-box' style='background:#28a745; color:white;'>{unit_id}</div>", unsafe_allow_html=True)
-                    elif is_locked:
-                        cols[i].markdown(f"<div class='grid-box' style='background:#ffc107; color:black;'>{unit_id}</div>", unsafe_allow_html=True)
-                    else:
-                        if cols[i].button(unit_id, key=unit_id):
-                            st.session_state.selected_unit = unit_id
-                            st.rerun()
-                st.write("") 
+                    with cols[i]:
+                        if is_refuge:
+                            st.markdown(f"<div class='grid-box' style='background:#2a2b36; color:#5c5d6b;'>REFUGE</div>", unsafe_allow_html=True)
+                        elif is_sold:
+                            st.markdown(f"<div class='grid-box' style='background:#28a745; color:white;'>{unit_id}</div>", unsafe_allow_html=True)
+                        elif is_locked:
+                            st.markdown(f"<div class='grid-box' style='background:#ffc107; color:black;'>{unit_id}</div>", unsafe_allow_html=True)
+                        else:
+                            if st.button(unit_id, key=unit_id):
+                                st.session_state.selected_unit = unit_id
+                                st.rerun()
 
         # SCREEN 2: ON-SCREEN COST SHEET
         else:
@@ -297,7 +310,6 @@ else:
                 
                 res = calculate_negotiation(base_agr, d_val, p_d_val, use_p, is_f)
 
-                # EXACT ORIGINAL ON-SCREEN COST SHEET LOGIC
                 st.markdown(f"""
                     <div style="background:white; padding:30px; border:2px solid black; color:black; font-family:monospace;">
                         <div style="text-align:right;">Date: {today_str}</div>
