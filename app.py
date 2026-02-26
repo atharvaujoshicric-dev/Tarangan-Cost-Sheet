@@ -131,7 +131,6 @@ def create_pdf(unit_id, floor, carpet, costs, cust_name, date_str, use_parking):
 st.set_page_config(page_title="Tarangan Dashboard", layout="centered")
 
 # Unified CSS for absolute parity in grid sizing
-st.markdown("""
     <style>
     /* 1. Reset Column Padding to keep the grid tight */
     [data-testid="column"] {
@@ -170,8 +169,7 @@ st.markdown("""
         /* Slight border to match the visual weight of buttons */
         border: 1px solid rgba(255, 255, 255, 0.1); 
     }
-    </style>
-""", unsafe_allow_html=True)
+    </style>, unsafe_allow_html=True)
 
 @st.cache_data(ttl=2)
 def load_data():
