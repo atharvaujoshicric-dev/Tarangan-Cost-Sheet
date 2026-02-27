@@ -236,19 +236,23 @@ else:
                     st.write(f"**Cabin {b}:** 🟢 Free")
     # --- SALES DASHBOARD ---
     elif st.session_state.role == "Sales":
-        st.title("🏙️ Stage 3: Sales Portal")
+        # 1. DEFINE THIS AT THE TOP TO PREVENT NAMEERROR
+        ist_now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=5, minutes=30)))
+        
+        st.title("🏙️ Sales Portal")
         if st.button("🔄 Refresh Data"): st.rerun()
         
         my_cabin = st.selectbox("Select Cabin:", list("ABCDEFGHIJ"))
         cust_name = storage["booths"].get(my_cabin)
         
-        if not cust_name:
-            st.warning(f"No customer in Cabin {my_cabin}.")
-        else:
+        if cust_name:
             inventory = load_data()
-            token_row = inventory[inventory['Customer Allotted'].astype(str).str.contains(cust_name, case=False, na=False)]
-            assigned_id = str(token_row['ID'].values[0]).upper() if not token_row.empty else "NONE"
-            
+            # ... [Rest of your inventory grid logic] ...
+
+            if search_id:
+                match = inventory[inventory['ID'].astype(str).str.upper() == search_id]
+                if not match.empty:
+                    row = match.iloc[0]
             st.success(f"Serving: {cust_name} | Assigned: {assigned_id}")
 
             # --- UNBLOCK REQUEST LOGIC (2 CHANCES) ---
@@ -316,9 +320,13 @@ else:
                     st.session_state.search_id_input = ""; st.rerun()
 
     # --- ADMIN DASHBOARD ---
+    # --- ADMIN DASHBOARD ---
     elif st.session_state.role == "Tarangan":
         st.title("🛠️ Admin Master Control")
-        t1, t2, t3 = st.tabs(["Pending Requests", "Manage Unblocks", "System Overview"])
+        if st.sidebar.button("🔄 Global Refresh"): st.rerun()
+
+        # Added t4 for Reports
+        t1, t2, t3, t4 = st.tabs(["Pending Requests", "Manage Unblocks", "System Management", "📊 Full Sales Report"])
 
         with t1:
             st.subheader("Unblock Requests")
@@ -328,8 +336,9 @@ else:
                     col_a.write(f"**Cabin {cab}** requests unit **{unit}**")
                     if col_b.button(f"Approve {unit}", key=f"app_{cab}"):
                         if cab not in storage["approved_units"]: storage["approved_units"][cab] = []
-                        storage["approved_units"][cab].append(unit)
-                        storage["unblock_counts"][cab] = storage["unblock_counts"].get(cab, 0) + 1
+                        if unit not in storage["approved_units"][cab]:
+                            storage["approved_units"][cab].append(unit)
+                            storage["unblock_counts"][cab] = storage["unblock_counts"].get(cab, 0) + 1
                         del storage["pending_requests"][cab]
                         st.success(f"Approved {unit} for Cabin {cab}")
                         st.rerun()
@@ -341,14 +350,56 @@ else:
             active_unblocks = False
             for cab, units in storage["approved_units"].items():
                 for u in units:
-                    if u not in storage["sold_units"]: # Only revoke if not yet sold
+                    if u not in storage["sold_units"]:
                         active_unblocks = True
                         c1, c2 = st.columns([2, 1])
                         c1.write(f"Cabin {cab} has access to **{u}**")
                         if c2.button(f"Revoke {u}", key=f"rev_{cab}_{u}"):
                             storage["approved_units"][cab].remove(u)
-                            # Optional: Decide if revoking restores the "chance" count
-                            # storage["unblock_counts"][cab] -= 1 
                             st.rerun()
             if not active_unblocks:
                 st.info("No active unblocked units to revoke.")
+
+        with t3:
+            st.subheader("System Control")
+            if storage["sold_units"]:
+                u_rel = st.selectbox("Select Unit to Unlock:", sorted(list(storage["sold_units"])))
+                if st.button("🔓 Release Sold Unit"):
+                    storage["sold_units"].remove(u_rel)
+                    st.success(f"Unit {u_rel} is now available again.")
+                    st.rerun()
+            
+            st.divider()
+            if st.button("⚠️ Clear All Activity Logs"):
+                storage["activity_log"] = []
+                st.success("Logs cleared.")
+
+        with t4:
+            st.subheader("📈 Project Sales Report")
+            
+            if storage["download_history"]:
+                # Convert history to DataFrame
+                df_report = pd.DataFrame(storage["download_history"])
+                
+                # --- Metrics Summary ---
+                m1, m2, m3 = st.columns(3)
+                m1.metric("Total Units Sold", len(df_report))
+                m2.metric("Total Revenue", f"₹ {format_indian_currency(df_report['Total Package'].sum())}")
+                m3.metric("Total Discount Given", f"₹ {format_indian_currency(df_report['Discount'].sum())}")
+                
+                st.divider()
+                
+                # --- Search/Filter Table ---
+                st.write("### Detailed Transaction Log")
+                st.dataframe(df_report, use_container_width=True)
+                
+                # --- CSV Export ---
+                csv = df_report.to_csv(index=False).encode('utf-8')
+                st.download_button(
+                    label="📥 Download Full Report (CSV)",
+                    data=csv,
+                    file_name=f"Tarangan_Sales_Report_{datetime.datetime.now().strftime('%d_%m_%Y')}.csv",
+                    mime="text/csv",
+                )
+            else:
+                st.warning("No sales data available yet. Reports will appear once units are booked.")
