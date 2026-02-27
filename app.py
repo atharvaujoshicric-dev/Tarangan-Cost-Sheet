@@ -161,7 +161,6 @@ else:
         st.session_state.authenticated = False
         st.rerun()
 
-    # --- GRE DASHBOARD (Line 140/141 starts here) ---
     # --- GRE DASHBOARD ---
     elif st.session_state.role == "GRE":
         st.title("📝 Stage 1: GRE Entry")
@@ -182,7 +181,7 @@ else:
             st.subheader("📋 Database List")
             
             # Change "Customer Name" below to match your Excel/Sheet header exactly
-            target_column = "Customer Name" 
+            target_column = "Customer Allotted" 
             
             if target_column in df_master.columns:
                 # Get unique names, drop empty rows
