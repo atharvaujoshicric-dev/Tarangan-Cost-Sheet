@@ -162,41 +162,56 @@ else:
         st.rerun()
 
     # --- GRE DASHBOARD (Line 140/141 starts here) ---
-    if st.session_state.role == "GRE":  # Use 'if' here, not 'elif' if it's the first role check
+    # --- GRE DASHBOARD ---
+    elif st.session_state.role == "GRE":
         st.title("📝 Stage 1: GRE Entry")
         
-        # Load database from Google Sheets
+        # 1. Load data and clean column names
         df_master = load_data()
+        df_master.columns = df_master.columns.str.strip() # Removes hidden spaces
         
-        # Security: Prevent duplicates
-        names_in_waiting = [c.upper() for c in storage.get("waiting_customers", [])]
+        # 2. Safety Check for Active Customers
+        names_in_waiting = [str(c).upper() for c in storage.get("waiting_customers", [])]
         names_in_cabins = [str(v).upper() for v in storage.get("booths", {}).values() if v is not None]
         all_active_names = names_in_waiting + names_in_cabins
 
         col_left, col_right = st.columns(2)
 
+        # --- LEFT SIDE: DATABASE LIST ---
         with col_left:
             st.subheader("📋 Database List")
-            if 'Customer Name' in df_master.columns:
-                db_list = df_master['Customer Name'].dropna().unique().tolist()
-                # Exclude people already in the waiting list or cabins
-                filtered_db = [cust for cust in db_list if cust.upper() not in all_active_names]
+            
+            # Change "Customer Name" below to match your Excel/Sheet header exactly
+            target_column = "Customer Name" 
+            
+            if target_column in df_master.columns:
+                # Get unique names, drop empty rows
+                db_list = df_master[target_column].dropna().unique().tolist()
                 
-                selected_cust = st.selectbox("Search Customer:", ["-- Select --"] + sorted(filtered_db))
+                # Filter out people already in the list
+                filtered_db = [cust for cust in db_list if str(cust).upper() not in all_active_names]
+                
+                selected_cust = st.selectbox("Search & Select Customer:", ["-- Select --"] + sorted(filtered_db))
+                
                 if st.button("Add Selected"):
                     if selected_cust != "-- Select --":
                         storage["waiting_customers"].append(selected_cust)
                         st.success(f"Added {selected_cust}")
                         st.rerun()
+            else:
+                # This helps you debug!
+                st.error(f"Column '{target_column}' not found.")
+                st.info(f"Available columns in your sheet are: {', '.join(df_master.columns)}")
 
+        # --- RIGHT SIDE: WALK-IN ---
         with col_right:
             st.subheader("🚶 Walk-in")
             with st.form("walkin_form", clear_on_submit=True):
-                new_name = st.text_input("Customer Name").strip()
+                new_name = st.text_input("Enter Name").strip()
                 if st.form_submit_button("Add Walk-in"):
                     if new_name:
                         if new_name.upper() in all_active_names:
-                            st.warning("Customer already exists in the list/cabin!")
+                            st.warning("Customer already in system!")
                         else:
                             storage["waiting_customers"].append(new_name)
                             st.success(f"Added {new_name}")
@@ -204,7 +219,14 @@ else:
 
         st.divider()
         st.subheader("📊 Live Waiting List")
-        # Display list...
+        if storage.get("waiting_customers"):
+            for i, cust in enumerate(storage["waiting_customers"]):
+                c1, c2 = st.columns([5, 1])
+                c1.write(f"{i+1}. **{cust}**")
+                if c2.button("🗑️", key=f"rm_{i}"):
+                    storage["waiting_customers"].remove(cust)
+                    st.rerun()
+                    
     # --- MANAGER DASHBOARD ---
     elif st.session_state.role == "Manager":
         st.title("👔 Manager Assignment")
