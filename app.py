@@ -33,7 +33,10 @@ def clean_numeric(value):
 def format_indian_currency(number):
     s = str(int(number))
     if len(s) <= 3: return s
-    return re.sub(r'(\d+?)(?=(\d{2})+$)', r'\1,', s[:-3]) + ',' + s[-3:]
+    last_three = s[-3:]
+    remaining = s[:-3]
+    remaining = re.sub(r'(\d+?)(?=(\d{2})+$)', r'\1,', remaining)
+    return remaining + ',' + last_three
 
 def get_slot_info(token_str):
     try:
@@ -45,20 +48,18 @@ def get_slot_info(token_str):
     except: return "Walk-in", "N/A"
 
 def calculate_negotiation(initial_agreement, pkg_discount=0, park_discount=0, use_parking=False, is_female=False):
-    parking_price = (200000 - park_discount) if use_parking else 0
-    final_agreement = initial_agreement - pkg_discount + parking_price
+    parking_final_price = (200000 - park_discount) if use_parking else 0
+    final_agreement = initial_agreement - pkg_discount + parking_final_price
     sd_pct = 0.06 if is_female else 0.07
     gst_pct = 0.05 if final_agreement > 4500000 else 0.01
-    sd_amt = round(final_agreement * sd_pct, -2) 
+    REGISTRATION = 30000 
+    sd_amt = final_agreement * sd_pct
     gst_amt = final_agreement * gst_pct
-    reg = 30000
-    total = int(final_agreement + sd_amt + gst_amt + reg)
-    parking_text = "Parking Under Building" if use_parking else "1 Car Parking"
+    total_package = final_agreement + sd_amt + gst_amt + REGISTRATION
     return {
-        "Final Agreement": final_agreement, "Stamp Duty": sd_amt, "SD_Pct": sd_pct*100, 
-        "GST": gst_amt, "GST_Pct": gst_pct*100, "Registration": reg, 
-        "Total": total, "Combined_Discount": int(pkg_discount + park_discount),
-        "Parking Text": parking_text
+        "Final Agreement": final_agreement, "Stamp Duty": sd_amt, "SD_Pct": sd_pct * 100,
+        "GST": gst_amt, "GST_Pct": gst_pct * 100, "Registration": REGISTRATION,
+        "Total": int(total_package), "Combined_Discount": int(pkg_discount + park_discount)
     }
 
 def send_email(recipient_email, pdf_data, filename, details):
@@ -143,7 +144,6 @@ else:
     with st.sidebar:
         st.title(f"Role: {st.session_state.role}")
         if st.button("🚪 Logout"): st.session_state.authenticated = False; st.rerun()
-        if st.button("🔄 Refresh Page"): st.rerun()
 
     # --- GRE DASHBOARD ---
     if st.session_state.role == "GRE":
@@ -153,11 +153,6 @@ else:
         t1, t2 = st.tabs(["Allotted", "Walk-in"])
         with t1:
             name_sel = st.selectbox("Select Customer:", ["Select"] + allotted)
-            if name_sel != "Select":
-                tok_key = next((c for c in inventory.columns if 'TOKEN' in c.upper()), None)
-                if tok_key:
-                    v = inventory[inventory['Customer Allotted'] == name_sel][tok_key].values[0]
-                    slot, time = get_slot_info(v); st.info(f"Slot: {slot} | Timing: {time}")
             if st.button("Add to Queue"):
                 if name_sel != "Select":
                     storage["waiting_customers"].append(name_sel); storage["visited_customers"].add(name_sel); st.success("Added.")
@@ -183,9 +178,7 @@ else:
             for b, c in storage["booths"].items():
                 if c:
                     st.write(f"**Cabin {b}:** {c}")
-                    c1, c2 = st.columns(2)
-                    if c1.button(f"Unassign {b}", key=f"un_{b}"): storage["waiting_customers"].append(c); storage["booths"][b] = None; st.rerun()
-                    if c2.button(f"Delete {b}", key=f"del_{b}"): storage["booths"][b] = None; st.rerun()
+                    if st.button(f"Unassign {b}", key=f"un_{b}"): storage["waiting_customers"].append(c); storage["booths"][b] = None; st.rerun()
                 else: st.write(f"Cabin {b}: 🟢 Free")
 
     # --- SALES DASHBOARD ---
@@ -199,12 +192,12 @@ else:
             token_row = inventory[inventory['Customer Allotted'].astype(str).str.contains(cust_name, case=False, na=False)]
             assigned_id = str(token_row['ID'].values[0]).upper() if not token_row.empty else "NONE"
             
-            st.info(f"Customer: {cust_name} | Target: {assigned_id}")
+            st.info(f"Customer: {cust_name} | Assigned: {assigned_id}")
 
             if "search_id_input" not in st.session_state: st.session_state.search_id_input = ""
             search_id = st.session_state.search_id_input.upper()
 
-            with st.expander("📁 View Inventory Grid", expanded=(not search_id)):
+            with st.expander("📁 Inventory Grid", expanded=(not search_id)):
                 grid_cols = st.columns(6)
                 for idx, row in inventory.iterrows():
                     uid = str(row['ID']).upper()
@@ -218,51 +211,49 @@ else:
                 match = inventory[inventory['ID'].astype(str).str.upper() == search_id]
                 if not match.empty:
                     row = match.iloc[0]
+                    ist_now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=5, minutes=30)))
                     
-                    # --- RESTORED DISCOUNT & FEMALE OPTIONS ---
+                    # --- CHECKBOXES FROM PREVIOUS CODE ---
                     c1, c2, c3 = st.columns(3)
-                    with c1: use_p = st.checkbox("Include Parking", value=True)
-                    with c2: is_fem = st.checkbox("Female Owner (6% SD)")
-                    with c3: pkg_disc = st.number_input("Package Discount", value=0, step=5000)
+                    with c1:
+                        use_d = st.checkbox("Discount")
+                        d_val = st.number_input("Amt:", value=0, step=1000) if use_d else 0
+                    with c2:
+                        use_p = st.checkbox("Parking")
+                        p_val = st.number_input("Park Disc:", value=0, min_value=0, max_value=100000, step=1000) if use_p else 0
+                    with c3: is_f = st.checkbox("Female")
                     
-                    park_disc = st.number_input("Parking Discount", value=0, step=5000) if use_p else 0
-                    
-                    res = calculate_negotiation(clean_numeric(row.get('Agreement Value', 0)), pkg_disc, park_disc, use_p, is_fem)
-                    
-                    # --- UPDATED RECEIPT STYLE COST SHEET ---
+                    res = calculate_negotiation(clean_numeric(row.get('Agreement Value', 0)), d_val, p_val, use_p, is_f)
+                    park_loc_label = "Parking Under Building" if use_p else "1 Car Parking"
+
+                    # --- RESTORED EXACT ONSCREEN COST SHEET ---
                     st.markdown(f"""
-                        <div style="background:#fffef0; padding:20px; border:1px solid #ddd; border-top:10px solid #222; max-width:400px; color:black; font-family:'Courier New', Courier, monospace; box-shadow: 2px 2px 10px rgba(0,0,0,0.1); margin:auto;">
-                            <h2 style="text-align:center; margin-bottom:0;">TARANGAN</h2>
-                            <p style="text-align:center; font-size:12px; margin-top:0;">*** BOOKING RECEIPT ***</p>
-                            <p style="text-align:center; font-size:10px;">Date: {datetime.datetime.now().strftime("%d/%m/%Y %H:%M")}</p>
-                            <p>---------------------------------</p>
-                            <p><b>CUSTOMER:</b> {cust_name}</p>
-                            <p><b>UNIT NO:</b> {search_id}</p>
-                            <p><b>FLOOR  :</b> {row.get('Floor','N/A')}</p>
-                            <p><b>CARPET :</b> {row.get('CARPET','N/A')} SQFT</p>
-                            <p>---------------------------------</p>
-                            <div style="display:flex; justify-content:space-between;"><span>AGREEMENT VAL:</span><span>{format_indian_currency(res['Final Agreement'])}</span></div>
-                            <div style="display:flex; justify-content:space-between;"><span>STAMP DUTY ({int(res['SD_Pct'])}%):</span><span>{format_indian_currency(res['Stamp Duty'])}</span></div>
-                            <div style="display:flex; justify-content:space-between;"><span>GST ({int(res['GST_Pct'])}%):</span><span>{format_indian_currency(res['GST'])}</span></div>
-                            <div style="display:flex; justify-content:space-between;"><span>REGISTRATION :</span><span>30,000</span></div>
-                            <p>---------------------------------</p>
-                            <div style="display:flex; justify-content:space-between; font-weight:bold; font-size:18px;"><span>TOTAL ALL IN:</span><span>{format_indian_currency(res['Total'])}</span></div>
-                            <p>---------------------------------</p>
-                            <p style="font-size:10px; text-align:center;">PARKING: {res['Parking Text']}</p>
-                            <p style="text-align:center; margin-top:20px;">THANK YOU!</p>
+                        <div style="background:white; padding:30px; border:2px solid black; color:black; font-family:monospace;">
+                            <div style="text-align:right;">Date: {ist_now.strftime("%d/%m/%Y")}</div>
+                            <h2 style="text-align:center; border-bottom:2px solid black;">TARANGAN</h2>
+                            <p><b>Customer:</b> {cust_name}</p>
+                            <p><b>Unit:</b> {search_id} | <b>Floor:</b> {row.get('Floor','N/A')} | <b>Carpet:</b> {row.get('CARPET','N/A')} sqft</p>
+                            <p><b>Parking Status:</b> {park_loc_label}</p>
+                            <div style="display:flex; justify-content:space-between; border-bottom:1px dotted #888; padding:5px 0;"><span>Agreement</span><span>Rs. {format_indian_currency(res['Final Agreement'])}</span></div>
+                            <div style="display:flex; justify-content:space-between; border-bottom:1px dotted #888; padding:5px 0;"><span>Stamp Duty ({int(res['SD_Pct'])}%)</span><span>Rs. {format_indian_currency(res['Stamp Duty'])}</span></div>
+                            <div style="display:flex; justify-content:space-between; border-bottom:1px dotted #888; padding:5px 0;"><span>GST ({int(res['GST_Pct'])}%)</span><span>Rs. {format_indian_currency(res['GST'])}</span></div>
+                            <div style="display:flex; justify-content:space-between; border-bottom:1px dotted #888; padding:5px 0;"><span>Registration</span><span>Rs. {format_indian_currency(res['Registration'])}</span></div>
+                            <div style="display:flex; justify-content:space-between; font-weight:bold; font-size:1.2em; border-top:2px solid black; margin-top:10px; padding:10px 0;"><span>TOTAL</span><span>Rs. {format_indian_currency(res['Total'])}</span></div>
+                            <div style="font-style:italic; margin-top:5px;">Rupees {num2words(res['Total'], lang='en_IN').title().replace(",","")} Only</div>
+                            <div style="color:red; font-weight:bold; margin-top:10px;">Total Discount Availed: Rs. {format_indian_currency(res['Combined_Discount'])}</div>
                         </div>
                     """, unsafe_allow_html=True)
                     
                     st.write("")
                     col_act1, col_act2 = st.columns(2)
-                    if col_act1.button("✅ Finalize & Send Email"):
+                    if col_act1.button("✅ Finalize & Send"):
                         pdf_bytes = create_pdf(search_id, row.get('Floor','N/A'), row.get('CARPET','N/A'), res, cust_name, "28/02/2026", use_p)
                         details = {"Unit No": search_id, "Customer Name": cust_name, "Total": format_indian_currency(res['Total'])}
                         if send_email(RECEIVER_EMAIL, pdf_bytes, f"{search_id}.pdf", details):
                             storage["sold_units"].add(search_id); storage["download_history"].append(details)
                             reset_cabin_session(my_cabin); st.session_state.search_id_input = ""; st.rerun()
                     
-                    if col_act2.button("🔓 Release Unit Selection"):
+                    if col_act2.button("❌ Close / Release"):
                         st.session_state.search_id_input = ""; st.rerun()
 
             st.write("---")
@@ -279,24 +270,14 @@ else:
     # --- ADMIN DASHBOARD ---
     elif st.session_state.role == "Tarangan":
         st.title("🛠️ Admin Master")
-        t1, t2, t3, t4 = st.tabs(["Requests", "Sales & Opt-Outs", "Release Sold", "Non-Visited"])
+        t1, t2, t3 = st.tabs(["Requests", "Sales History", "Release Sold"])
         with t1:
             for c, u in list(storage["pending_requests"].items()):
                 st.write(f"Cabin {c} -> Unit {u}")
                 if st.button(f"Approve {u}", key=f"ap_{c}"):
                     storage["approved_units"][c].append(u); storage["unblock_counts"][c]+=1; del storage["pending_requests"][c]; st.rerun()
         with t2:
-            st.subheader("Sales History"); st.table(storage["download_history"])
-            st.subheader("Opted Out List"); st.table(storage["opted_out"])
+            st.table(storage["download_history"])
         with t3:
             u_rel = st.selectbox("Release Unit:", sorted(list(storage["sold_units"])))
             if st.button("Unlock Unit"): storage["sold_units"].remove(u_rel); st.rerun()
-        with t4:
-            inventory = load_data()
-            tok_key = next((c for c in inventory.columns if 'TOKEN' in c.upper()), None)
-            if tok_key:
-                allotted_list = inventory.dropna(subset=['Customer Allotted'])
-                for s in ["Slot 1", "Slot 2", "Slot 3"]:
-                    st.write(f"### {s}")
-                    nv = [{"Customer": r['Customer Allotted'], "Token": r[tok_key]} for _, r in allotted_list.iterrows() if get_slot_info(r[tok_key])[0] == s and r['Customer Allotted'] not in storage["visited_customers"]]
-                    st.table(nv if nv else [{"Customer": "None", "Token": "-"}])
