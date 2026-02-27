@@ -20,7 +20,7 @@ def get_global_storage():
         "sold_units": set(), 
         "download_history": [],
         "booths": {letter: None for letter in "ABCDEFGHIJ"},
-        "admin_overrides": {letter: False for letter in "ABCDEFGHIJ"}, # New: Admin permission tracker
+        "admin_overrides": {letter: False for letter in "ABCDEFGHIJ"}, 
         "unit_hits": {},
         "waiting_customers": [],
         "activity_log": []
@@ -74,71 +74,24 @@ def calculate_negotiation(initial_agreement, pkg_discount=0, park_discount=0, us
 # --- 4. PDF GENERATION ---
 def create_pdf(unit_id, floor, carpet, costs, cust_name, date_str, use_parking):
     pdf = FPDF()
-    copies = ["Customer's Copy", "Sales Copy"]
-    for copy_label in copies:
+    parking_label = "Parking Under Building" if use_parking else "Parking Outside Building"
+    for copy_label in ["Customer's Copy", "Sales Copy"]:
         pdf.add_page()
-        pdf.set_font("Arial", 'I', 8); pdf.set_xy(10, 5); pdf.cell(0, 10, copy_label, ln=True, align='L')
-        try:
-            pdf.image("tarangan_logo.png", x=75, y=10, w=60)
-            pdf.set_y(42); pdf.set_font("Arial", 'B', 14); pdf.cell(190, 10, "COST SHEET", ln=True, align='C')
-        except:
-            pdf.set_y(20); pdf.set_font("Arial", 'B', 20); pdf.cell(190, 10, "TARANGAN", ln=True, align='C')
-            pdf.set_font("Arial", 'B', 14); pdf.cell(190, 10, "COST SHEET", ln=True, align='C')
-
+        pdf.set_font("Arial", 'I', 8); pdf.set_xy(10, 5); pdf.cell(0, 10, copy_label, ln=True)
+        pdf.set_y(20); pdf.set_font("Arial", 'B', 20); pdf.cell(190, 10, "TARANGAN", ln=True, align='C')
+        pdf.set_font("Arial", 'B', 14); pdf.cell(190, 10, "COST SHEET", ln=True, align='C')
         pdf.set_font("Arial", '', 10); pdf.cell(190, 10, f"Date: {date_str}", ln=True, align='R')
-        pdf.set_font("Arial", 'B', 12); display_name = cust_name if cust_name.strip() else "____________________"
-        pdf.cell(190, 10, f"Customer Name: {display_name}", ln=True)
-        pdf.cell(190, 10, f"Unit No: {unit_id} | Floor: {floor} | Carpet: {carpet} sqft", ln=True)
-        pdf.line(10, pdf.get_y(), 200, pdf.get_y()); pdf.ln(5)
-        
-        pdf.set_font("Arial", 'B', 11); pdf.cell(95, 10, "Description", border=1, align='C'); pdf.cell(95, 10, "Amount (Rs.)", border=1, ln=True, align='C')
+        pdf.set_font("Arial", 'B', 12); pdf.cell(190, 10, f"Customer: {cust_name}", ln=True)
+        pdf.cell(190, 10, f"Unit: {unit_id} | Floor: {floor} | Carpet: {carpet} sqft", ln=True)
+        pdf.set_font("Arial", 'I', 10); pdf.cell(190, 10, f"Parking: {parking_label}", ln=True)
+        pdf.ln(5)
+        pdf.cell(95, 10, "Description", border=1, align='C'); pdf.cell(95, 10, "Amount (Rs.)", border=1, ln=True, align='C')
         pdf.set_font("Arial", '', 11)
-        rows = [
-            ["Agreement Value", format_indian_currency(costs['Final Agreement'])],
-            [f"Stamp Duty ({int(costs['SD_Pct'])}%)", format_indian_currency(costs['Stamp Duty'])],
-            [f"GST ({int(costs['GST_Pct'])}%)", format_indian_currency(costs['GST'])],
-            ["Registration", format_indian_currency(costs['Registration'])]
-        ]
-        for r in rows:
-            pdf.cell(95, 10, r[0], border=1, align='C'); pdf.cell(95, 10, r[1], border=1, ln=True, align='C')
-        
-        pdf.set_font("Arial", 'B', 13); pdf.cell(95, 12, "ALL INCLUSIVE TOTAL", border=1, align='C'); pdf.cell(95, 12, format_indian_currency(costs['Total']), border=1, ln=True, align='C')
-        
-        try:
-            words = num2words(costs['Total'], lang='en_IN').title().replace(",", "")
-            pdf.set_font("Arial", 'B', 9); pdf.ln(2); pdf.multi_cell(190, 8, f"Amount in words: Rupees {words} Only")
-        except: pass
-        
-        pdf.ln(2); pdf.set_font("Arial", 'B', 8); pdf.cell(0, 5, "TERMS & CONDITIONS:", ln=True); pdf.set_font("Arial", '', 6.0)
-        tc_lines = [
-            "1. Advocate charges will be Rs. 15,000/-.",
-            "2. Agreement to be executed & registered within 15 days from the date of booking.",
-            "3. The total cost mentioned here is all inclusive of GST, Registration, Stamp Duty and Legal charges",
-            "4. GST, Stamp Duty, Registration and all applicable government charges are as per the current rates, and in future may change as per government notification which would be borne by the customer.",
-            "5. Above areas are shown in square feet only to make it easy for the purchaser to understand. The sale of the said unit is on the basis of RERA carpet area only.",
-            "6. All legal documents will be executed in square meter only.",
-            "7. Subject to PCMC jurisdiction.",
-            "8. Society Maintenance at Rs. 3 per sq.ft. per month for 2 years and will be taken at the time of possession.",
-            "9. Loan facility available from all leading banks and home loan sanctioning is customers responsibility, developer however will assist in the process.",
-            "10. The promoters reserve the right to change the above prices and the offer given at any time without prior notice. No verbal commitments to be accepted post booking.",
-            "11. Booking is non-transferable.",
-            "12. The information on this paper is provided in good faith and does not constitute part of the contract.",
-            "13. Government taxes will be applicable at actual. Also, any other taxes not mentioned herein if levied later would be payable at actuals by the purchaser.",
-            "14. Documents required: PAN Card, Adhar Card, Photocopy.",
-            "15. If an external bank is opted for loan processing, an additional charge of Rs. 25,000/- shall be applicable and payable by the purchaser."
-        ]
-        for line in tc_lines: pdf.multi_cell(0, 3.2, line)
-        
-        page_height, footer_y = pdf.h, pdf.h - 18 - 32
-        pdf.set_y(footer_y)
-        try:
-            pdf.image("mahalaxmi_logo.png", x=10, y=footer_y, h=15); pdf.image("bw_logo.png", x=35, y=footer_y, h=15)
-        except:
-            pdf.set_font("Arial", 'I', 7); pdf.set_xy(10, footer_y); pdf.cell(60, 10, "[Logos Here]", ln=0)
-        pdf.set_xy(0, footer_y + 5); pdf.set_font("Arial", 'B', 12); pdf.cell(210, 10, "Contact: 080 6452 3034", align='C')
-        pdf.set_xy(150, footer_y); pdf.cell(45, 18, "", border=1)
-        pdf.set_xy(150, footer_y + 19); pdf.set_font("Arial", '', 7); pdf.cell(45, 5, "Customer Signature", align='C')
-
+        pdf.cell(95, 10, "Agreement Value", border=1, align='C'); pdf.cell(95, 10, format_indian_currency(costs['Final Agreement']), border=1, ln=True, align='C')
+        pdf.cell(95, 10, f"Stamp Duty ({int(costs['SD_Pct'])}%)*", border=1, align='C'); pdf.cell(95, 10, format_indian_currency(costs['Stamp Duty']), border=1, ln=True, align='C')
+        pdf.cell(95, 10, f"GST ({int(costs['GST_Pct'])}%)", border=1, align='C'); pdf.cell(95, 10, format_indian_currency(costs['GST']), border=1, ln=True, align='C')
+        pdf.cell(95, 10, "Registration", border=1, align='C'); pdf.cell(95, 10, format_indian_currency(costs['Registration']), border=1, ln=True, align='C')
+        pdf.set_font("Arial", 'B', 13); pdf.cell(95, 12, "TOTAL", border=1, align='C'); pdf.cell(95, 12, format_indian_currency(costs['Total']), border=1, ln=True, align='C')
     return pdf.output(dest='S').encode('latin-1')
 
 # --- 5. UI SETUP ---
@@ -171,7 +124,7 @@ def release_unit_callback(unit_to_release):
     if unit_to_release in storage["locks"]: del storage["locks"][unit_to_release]
     st.session_state.search_id_input = ""
 
-# --- 6. LOGIN SYSTEM ---
+# --- 6. LOGIN ---
 if 'authenticated' not in st.session_state: st.session_state.authenticated = False
 
 if not st.session_state.authenticated:
@@ -186,16 +139,29 @@ if not st.session_state.authenticated:
 else:
     if st.sidebar.button("Logout"): st.session_state.authenticated = False; st.rerun()
 
-    # --- GRE ---
+    # --- GRE DASHBOARD ---
     if st.session_state.role == "GRE":
         st.title("📝 Stage 1: GRE Entry")
-        name = st.text_input("Customer Name").strip()
-        if st.button("Submit"):
-            if name and name.upper() not in [c.upper() for c in storage["waiting_customers"]]:
-                storage["waiting_customers"].append(name); st.success(f"Added {name}")
-            else: st.warning("Error.")
+        tab_add, tab_edit = st.tabs(["Add Customer", "Manage Waiting List"])
+        with tab_add:
+            with st.form("gre_add"):
+                name = st.text_input("Customer Name").strip()
+                if st.form_submit_button("Submit"):
+                    if name and name.upper() not in [c.upper() for c in storage["waiting_customers"]]:
+                        storage["waiting_customers"].append(name); st.success(f"Added {name}")
+                    else: st.warning("Error.")
+        with tab_edit:
+            if storage["waiting_customers"]:
+                sel = st.selectbox("Select Customer:", storage["waiting_customers"])
+                new_n = st.text_input("Edit Name:", value=sel)
+                c1, c2 = st.columns(2)
+                if c1.button("Update"):
+                    idx = storage["waiting_customers"].index(sel)
+                    storage["waiting_customers"][idx] = new_n; st.rerun()
+                if c2.button("Delete"):
+                    storage["waiting_customers"].remove(sel); st.rerun()
 
-    # --- MANAGER ---
+    # --- MANAGER DASHBOARD ---
     elif st.session_state.role == "Manager":
         st.title("👔 Stage 2: Manager Assignment")
         col1, col2 = st.columns(2)
@@ -207,7 +173,7 @@ else:
                 storage["waiting_customers"].remove(sel_c); st.rerun()
         col2.table([{"Cabin": k, "Customer": v if v else "Free"} for k, v in storage["booths"].items()])
 
-    # --- SALES ---
+    # --- SALES DASHBOARD ---
     elif st.session_state.role == "Sales":
         st.title("🏙️ Stage 3: Sales Portal")
         if st.button("🔄 Refresh Data"): st.rerun()
@@ -215,44 +181,47 @@ else:
         cust_name = storage["booths"].get(my_cabin)
         
         if not cust_name:
-            st.warning(f"No customer in Cabin {my_cabin}.")
+            st.warning(f"No customer assigned to Cabin {my_cabin}.")
         else:
             inventory = load_data()
             
-            # --- TOKEN LOGIC: Fetch assigned unit for this customer ---
-            # Search for the customer in the Google Sheet's name-related column or logic
-            # Assuming 'Token Number' column contains the ID (e.g. A-101)
+            # --- TOKEN TO ID LOGIC ---
+            # 1. Look for row where 'Token Number' matches current customer name
+            # 2. Get the 'ID' (Flat Number) from that row
             token_row = inventory[inventory.iloc[:, 1].astype(str).str.contains(cust_name, case=False, na=False)]
-            assigned_unit = str(token_row['Token Number'].values[0]).upper() if not token_row.empty else "NONE"
+            assigned_id = str(token_row['ID'].values[0]).upper() if not token_row.empty else "NONE"
             
-            st.info(f"Serving: **{cust_name}** | Assigned Token Unit: **{assigned_unit}**")
+            st.info(f"Serving: **{cust_name}** | Target Flat: **{assigned_id}**")
 
-            # Admin Override Request
+            # Admin Override check
             has_override = storage["admin_overrides"].get(my_cabin, False)
             if not has_override:
-                if st.button("🔑 Request Admin to Unblock Other Units"):
-                    log_activity("Sales", "OVERRIDE_REQ", f"Cabin {my_cabin} requested access.")
+                if st.button("🔑 Request Access to View All Units"):
+                    log_activity("Sales", "OVERRIDE_REQ", f"Cabin {my_cabin} requested universal access.")
                     st.toast("Request sent to Admin.")
 
             search_id = st.session_state.get("search_id_input", "").upper()
+            
+            # Inventory Grid
             with st.expander("📁 Inventory Selection Grid", expanded=(search_id == "")):
                 grid_cols = st.columns(6)
                 for idx, row in inventory.iterrows():
                     uid = str(row['ID']).upper()
-                    is_sold, is_busy = uid in storage["sold_units"], uid in storage["locks"] and storage["locks"][uid] != st.runtime.scriptrunner.get_script_run_ctx().session_id
+                    is_sold = uid in storage["sold_units"]
+                    is_busy = uid in storage["locks"] and storage["locks"][uid] != st.runtime.scriptrunner.get_script_run_ctx().session_id
                     
-                    # BLOCKING LOGIC: Only allow assigned_unit unless override is active
-                    is_locked = True
-                    if has_override: is_locked = False
-                    if uid == assigned_unit: is_locked = False
+                    # LOGIC: Buttons are disabled unless it is the assigned_id OR admin override is on
+                    is_blocked = True
+                    if has_override: is_blocked = False
+                    if uid == assigned_id: is_blocked = False
 
                     with grid_cols[idx % 6]:
-                        if is_sold: lbl, clr = f"🟢 {uid}", True
-                        elif is_busy: lbl, clr = f"🔴 BUSY", True
-                        elif is_locked: lbl, clr = f"🔒 LOCKED", True
-                        else: lbl, clr = f"🟡 {uid}", False
+                        if is_sold: lbl, btn_disabled = f"🟢 {uid}", True
+                        elif is_busy: lbl, btn_disabled = f"🔴 BUSY", True
+                        else:
+                            lbl, btn_disabled = f"🟡 {uid}", is_blocked
                         
-                        if st.button(lbl, key=f"btn_{uid}", use_container_width=True, disabled=clr):
+                        if st.button(lbl, key=f"btn_{uid}", use_container_width=True, disabled=btn_disabled):
                             st.session_state.search_id_input = uid
                             st.rerun()
 
@@ -261,21 +230,37 @@ else:
                 if not match.empty:
                     row = match.iloc[0]
                     storage["locks"][search_id] = st.runtime.scriptrunner.get_script_run_ctx().session_id
-                    d_val = st.number_input("Amt:", value=0, step=1000)
-                    p_val = st.number_input("Park Disc:", value=0, min_value=0, max_value=100000, step=1000)
-                    res = calculate_negotiation(clean_numeric(row.get('Agreement Value', 0)), d_val, p_val, st.checkbox("Parking"), False)
+                    ist_now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=5, minutes=30)))
+                    
+                    st.write("---")
+                    c1, c2, c3 = st.columns(3)
+                    with c1:
+                        use_d = st.checkbox("Discount")
+                        d_val = st.number_input("Amt:", value=0, step=1000) if use_d else 0
+                    with c2:
+                        use_p = st.checkbox("Parking")
+                        p_val = st.number_input("Park Disc:", value=0, min_value=0, max_value=100000, step=1000) if use_p else 0
+                    with c3: is_f = st.checkbox("Female")
+                    
+                    res = calculate_negotiation(clean_numeric(row.get('Agreement Value', 0)), d_val, p_val, use_p, is_f)
+                    park_label = "Parking Under Building" if use_p else "Parking Outside Building"
 
                     st.markdown(f"""
                         <div style="background:white; padding:30px; border:2px solid black; color:black; font-family:monospace;">
-                            <h2 style="text-align:center;">TARANGAN</h2>
-                            <p><b>Customer:</b> {cust_name} | <b>Unit:</b> {search_id}</p>
-                            <div style="display:flex; justify-content:space-between;"><span>Total</span><span>Rs. {format_indian_currency(res['Total'])}</span></div>
+                            <div style="text-align:right;">Date: {ist_now.strftime("%d/%m/%Y")}</div>
+                            <h2 style="text-align:center; border-bottom:2px solid black;">TARANGAN</h2>
+                            <p><b>Customer:</b> {cust_name}</p>
+                            <p><b>Unit:</b> {search_id} | <b>Parking:</b> {park_label}</p>
+                            <div style="display:flex; justify-content:space-between; border-bottom:1px dotted #888; padding:5px 0;"><span>Agreement</span><span>Rs. {format_indian_currency(res['Final Agreement'])}</span></div>
+                            <div style="display:flex; justify-content:space-between; font-weight:bold; font-size:1.2em; border-top:2px solid black; margin-top:10px; padding:10px 0;"><span>TOTAL</span><span>Rs. {format_indian_currency(res['Total'])}</span></div>
                         </div>
                     """, unsafe_allow_html=True)
                     
-                    if st.button("📥 Download"): 
-                        download_dialog(search_id, row.get('Floor','N/A'), row.get('CARPET','N/A'), res, cust_name, "2026", False, "2026")
-                    st.button("❌ Close", on_click=release_unit_callback, args=(search_id,))
+                    col_d, col_r = st.columns(2)
+                    with col_d:
+                        if st.button("📥 Download PDF & Block"): 
+                            download_dialog(search_id, row.get('Floor','N/A'), row.get('CARPET','N/A'), res, cust_name, ist_now.strftime("%d/%m/%Y"), use_p, ist_now.strftime("%d/%m/%Y %H:%M:%S"))
+                    with col_r: st.button("❌ Close", on_click=release_unit_callback, args=(search_id,))
 
     # --- ADMIN ---
     elif st.session_state.role == "Tarangan":
@@ -283,12 +268,11 @@ else:
         t1, t2, t3 = st.tabs(["Requests", "Management", "Reset"])
         
         with t1:
-            st.subheader("Sales Cabin Access Requests")
+            st.subheader("Sales Access Overrides")
             for cabin, status in storage["admin_overrides"].items():
                 if not status:
-                    if st.button(f"✅ Approve Universal Access for Cabin {cabin}"):
+                    if st.button(f"✅ Approve All Units for Cabin {cabin}"):
                         storage["admin_overrides"][cabin] = True
-                        log_activity("Admin", "OVERRIDE_APP", f"Approved Cabin {cabin}")
                         st.rerun()
                 else:
                     if st.button(f"🚫 Revoke Access for Cabin {cabin}"):
@@ -298,7 +282,15 @@ else:
         with t2:
             st.dataframe(pd.DataFrame(storage["download_history"]), use_container_width=True)
             unit_to_unblock = st.selectbox("Restore Unit:", list(storage["sold_units"]))
-            if st.button("Unblock"): storage["sold_units"].remove(unit_to_unblock); st.rerun()
+            if st.button("Unblock"): 
+                storage["sold_units"].remove(unit_to_unblock)
+                st.rerun()
 
         with t3:
-            if st.button("⚠️ RESET"): storage["locks"].clear(); storage["sold_units"].clear(); st.rerun()
+            reset_p = st.text_input("Reset Password:", type="password")
+            if st.button("⚠️ FULL RESET"):
+                if reset_p == "Atharva Joshi":
+                    storage["locks"].clear(); storage["sold_units"].clear(); storage["download_history"].clear()
+                    storage["waiting_customers"].clear(); storage["unit_hits"].clear()
+                    storage["booths"] = {letter: None for letter in "ABCDEFGHIJ"}
+                    st.success("System wiped."); st.rerun()
