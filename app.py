@@ -38,15 +38,6 @@ def format_indian_currency(number):
     remaining = re.sub(r'(\d+?)(?=(\d{2})+$)', r'\1,', remaining)
     return remaining + ',' + last_three
 
-def get_slot_info(token_str):
-    try:
-        if pd.isna(token_str) or str(token_str).strip() == "": return "Walk-in", "N/A"
-        token_no = int(re.search(r'\d+', str(token_str)).group())
-        if 21 <= token_no <= 45: return "Slot 1", "10:00 AM - 11:30 AM"
-        elif 46 <= token_no <= 71: return "Slot 2", "1:00 PM - 2:30 PM"
-        else: return "Slot 3", "5:00 PM - 6:00 PM"
-    except: return "Walk-in", "N/A"
-
 def calculate_negotiation(initial_agreement, pkg_discount=0, park_discount=0, use_parking=False, is_female=False):
     parking_final_price = (200000 - park_discount) if use_parking else 0
     final_agreement = initial_agreement - pkg_discount + parking_final_price
@@ -143,6 +134,7 @@ if not st.session_state.authenticated:
 else:
     with st.sidebar:
         st.title(f"Role: {st.session_state.role}")
+        if st.button("🔄 Refresh System"): st.rerun()
         if st.button("🚪 Logout"): st.session_state.authenticated = False; st.rerun()
 
     # --- GRE DASHBOARD ---
@@ -150,16 +142,10 @@ else:
         st.title("📝 GRE Dashboard")
         inventory = load_data()
         allotted = sorted(list(inventory['Customer Allotted'].dropna().unique()))
-        t1, t2 = st.tabs(["Allotted", "Walk-in"])
-        with t1:
-            name_sel = st.selectbox("Select Customer:", ["Select"] + allotted)
-            if st.button("Add to Queue"):
-                if name_sel != "Select":
-                    storage["waiting_customers"].append(name_sel); storage["visited_customers"].add(name_sel); st.success("Added.")
-        with t2:
-            walkin = st.text_input("Walk-in Name:")
-            if st.button("Add Walk-in"):
-                if walkin: storage["waiting_customers"].append(walkin); storage["visited_customers"].add(walkin); st.success("Added.")
+        name_sel = st.selectbox("Select Customer:", ["Select"] + allotted)
+        if st.button("Add to Queue"):
+            if name_sel != "Select":
+                storage["waiting_customers"].append(name_sel); storage["visited_customers"].add(name_sel); st.success("Added.")
 
     # --- MANAGER DASHBOARD ---
     elif st.session_state.role == "Manager":
@@ -184,6 +170,8 @@ else:
     # --- SALES DASHBOARD ---
     elif st.session_state.role == "Sales":
         st.title("🏙️ Sales Portal")
+        if st.button("🔄 Refresh Data"): st.rerun()
+        
         my_cabin = st.selectbox("Cabin Selection:", list("ABCDEFGHIJ"))
         cust_name = storage["booths"].get(my_cabin)
         
@@ -213,7 +201,6 @@ else:
                     row = match.iloc[0]
                     ist_now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=5, minutes=30)))
                     
-                    # --- CHECKBOXES FROM PREVIOUS CODE ---
                     c1, c2, c3 = st.columns(3)
                     with c1:
                         use_d = st.checkbox("Discount")
@@ -226,7 +213,7 @@ else:
                     res = calculate_negotiation(clean_numeric(row.get('Agreement Value', 0)), d_val, p_val, use_p, is_f)
                     park_loc_label = "Parking Under Building" if use_p else "1 Car Parking"
 
-                    # --- RESTORED EXACT ONSCREEN COST SHEET ---
+                    # --- RESTORED ORIGINAL MONOSPACE COST SHEET ---
                     st.markdown(f"""
                         <div style="background:white; padding:30px; border:2px solid black; color:black; font-family:monospace;">
                             <div style="text-align:right;">Date: {ist_now.strftime("%d/%m/%Y")}</div>
@@ -256,28 +243,17 @@ else:
                     if col_act2.button("❌ Close / Release"):
                         st.session_state.search_id_input = ""; st.rerun()
 
-            st.write("---")
-            col_opt1, col_opt2 = st.columns(2)
-            with col_opt1:
-                req = st.text_input("Request Unblock (Unit ID):").upper()
-                if st.button("Send Request"): storage["pending_requests"][my_cabin] = req; st.toast("Sent.")
-            with col_opt2:
-                opt_reason = st.text_input("Opt-Out Reason:")
-                if st.button("Mark Opted Out"):
-                    storage["opted_out"].append({"Customer": cust_name, "Reason": opt_reason})
-                    reset_cabin_session(my_cabin); st.rerun()
-
     # --- ADMIN DASHBOARD ---
     elif st.session_state.role == "Tarangan":
         st.title("🛠️ Admin Master")
+        if st.button("🔄 Global Refresh"): st.rerun()
         t1, t2, t3 = st.tabs(["Requests", "Sales History", "Release Sold"])
         with t1:
             for c, u in list(storage["pending_requests"].items()):
                 st.write(f"Cabin {c} -> Unit {u}")
                 if st.button(f"Approve {u}", key=f"ap_{c}"):
                     storage["approved_units"][c].append(u); storage["unblock_counts"][c]+=1; del storage["pending_requests"][c]; st.rerun()
-        with t2:
-            st.table(storage["download_history"])
+        with t2: st.table(storage["download_history"])
         with t3:
             u_rel = st.selectbox("Release Unit:", sorted(list(storage["sold_units"])))
             if st.button("Unlock Unit"): storage["sold_units"].remove(u_rel); st.rerun()
