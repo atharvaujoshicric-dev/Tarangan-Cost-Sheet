@@ -81,8 +81,7 @@ def send_email(recipient_email, pdf_data, filename, details):
         server.quit()
         return True
     except Exception as e:
-        st.error(f"Error: {e}")
-        return False
+        st.error(f"Error: {e}"); return False
 
 # --- SHARED STORAGE ---
 @st.cache_resource
@@ -151,23 +150,7 @@ def create_pdf(unit_id, floor, carpet, costs, cust_name, date_str, use_parking):
         except: pass
         
         pdf.ln(2); pdf.set_font("Arial", 'B', 8); pdf.cell(0, 5, "TERMS & CONDITIONS:", ln=True); pdf.set_font("Arial", '', 6.0)
-        tc_lines = [
-            "1. Advocate charges will be Rs. 15,000/-.",
-            "2. Agreement to be executed & registered within 15 days from the date of booking.",
-            "3. The total cost mentioned here is all inclusive of GST, Registration, Stamp Duty and Legal charges",
-            "4. GST, Stamp Duty, Registration and all applicable government charges are as per the current rates, and in future may change as per government notification which would be borne by the customer.",
-            "5. Above areas are shown in square feet only to make it easy for the purchaser to understand. The sale of the said unit is on the basis of RERA carpet area only.",
-            "6. All legal documents will be executed in square meter only.",
-            "7. Subject to PCMC jurisdiction.",
-            "8. Society Maintenance at Rs. 3 per sq.ft. per month for 2 years and will be taken at the time of possession.",
-            "9. Loan facility available from all leading banks and home loan sanctioning is customers responsibility, developer however will assist in the process.",
-            "10. The promoters reserve the right to change the above prices and the offer given at any time without prior notice. No verbal commitments to be accepted post booking.",
-            "11. Booking is non-transferable.",
-            "12. The information on this paper is provided in good faith and does not constitute part of the contract.",
-            "13. Government taxes will be applicable at actual. Also, any other taxes not mentioned herein if levied later would be payable at actuals by the purchaser.",
-            "14. Documents required: PAN Card, Adhar Card, Photocopy.",
-            "15. If an external bank is opted for loan processing, an additional charge of Rs. 25,000/- shall be applicable and payable by the purchaser."
-        ]
+        tc_lines = ["1. Advocate charges will be Rs. 15,000/-.", "2. Agreement to be executed & registered within 15 days from the date of booking.", "3. The total cost mentioned here is all inclusive of GST, Registration, Stamp Duty and Legal charges", "4. GST, Stamp Duty, Registration and all applicable government charges are as per the current rates, and in future may change as per government notification which would be borne by the customer.", "5. Above areas are shown in square feet only to make it easy for the purchaser to understand. The sale of the said unit is on the basis of RERA carpet area only.", "6. All legal documents will be executed in square meter only.", "7. Subject to PCMC jurisdiction.", "8. Society Maintenance at Rs. 3 per sq.ft. per month for 2 years and will be taken at the time of possession.", "9. Loan facility available from all leading banks and home loan sanctioning is customers responsibility, developer however will assist in the process.", "10. The promoters reserve the right to change the above prices and the offer given at any time without prior notice. No verbal commitments to be accepted post booking.", "11. Booking is non-transferable.", "12. The information on this paper is provided in good faith and does not constitute part of the contract.", "13. Government taxes will be applicable at actual. Also, any other taxes not mentioned herein if levied later would be payable at actuals by the purchaser.", "14. Documents required: PAN Card, Adhar Card, Photocopy.", "15. If an external bank is opted for loan processing, an additional charge of Rs. 25,000/- shall be applicable and payable by the purchaser."]
         for line in tc_lines: pdf.multi_cell(0, 3.2, line)
         
         page_height, footer_y = pdf.h, pdf.h - 18 - 32
@@ -200,7 +183,7 @@ def download_dialog(unit_id, floor, carpet, costs, cust_name, date_str, use_park
                 reset_cabin_session(cabin_key); st.session_state.search_id_input = ""
                 st.success("Sent!"); st.download_button("Download PDF", pdf_bytes, f"Tarangan_{unit_id}.pdf")
 
-# --- AUTH ---
+# --- LOGIN ---
 if 'authenticated' not in st.session_state: st.session_state.authenticated = False
 if not st.session_state.authenticated:
     st.title("🔐 Tarangan Login")
@@ -218,19 +201,13 @@ else:
         if st.button("🔄 Refresh"): st.rerun()
         inventory = load_data()
         allotted = sorted(list(inventory['Customer Allotted'].dropna().unique()))
-        
-        # Display Slot Info for Allotted
         name_sel = st.selectbox("Allotted Customer:", ["Select"] + allotted)
         if name_sel != "Select":
-            tok_val = inventory[inventory['Customer Allotted'] == name_sel]['Token No'].values[0]
-            slot, time = get_slot_info(tok_val)
-            st.info(f"Slot: {slot} | Timing: {time}")
-        
+            tok_val = inventory[inventory['Customer Allotted'] == name_sel]['TOKEN NO'].values[0] # FIXED KEY
+            slot, time = get_slot_info(tok_val); st.info(f"Slot: {slot} | Timing: {time}")
         if st.button("Add to Queue"):
             if name_sel != "Select": 
-                storage["waiting_customers"].append(name_sel)
-                storage["visited_customers"].add(name_sel)
-                st.success(f"{name_sel} added.")
+                storage["waiting_customers"].append(name_sel); storage["visited_customers"].add(name_sel); st.success(f"{name_sel} added.")
         
     # --- MANAGER DASHBOARD ---
     elif st.session_state.role == "Manager":
@@ -253,7 +230,6 @@ else:
                     c1, c2, c3 = st.columns(3)
                     if c1.button(f"Unassign {b}", key=f"un_{b}"): storage["waiting_customers"].append(c); storage["booths"][b] = None; st.rerun()
                     if c2.button(f"Delete {b}", key=f"del_{b}"): storage["booths"][b] = None; st.rerun()
-                    # Reassign is handled by Unassign + Assign
                 else: st.write(f"Cabin {b}: 🟢 Free")
 
     # --- SALES DASHBOARD ---
@@ -262,18 +238,23 @@ else:
         if st.button("🔄 Refresh"): st.rerun()
         my_cabin = st.selectbox("My Cabin:", list("ABCDEFGHIJ"))
         cust_name = storage["booths"].get(my_cabin)
-        
         if cust_name:
             inventory = load_data()
             token_row = inventory[inventory['Customer Allotted'].astype(str).str.contains(cust_name, case=False, na=False)]
             assigned_id = str(token_row['ID'].values[0]).upper() if not token_row.empty else "NONE"
+            st.info(f"Customer: {cust_name} | Assigned: {assigned_id}")
             
-            st.info(f"Customer: {cust_name}")
-            
-            col_act1, col_act2 = st.columns(2)
-            with col_act2:
+            # Unit Request Logic
+            rem = 2 - storage["unblock_counts"][my_cabin]
+            if rem > 0:
+                req = st.text_input("Request Unit Unblock:").upper()
+                if st.button(f"Send Request ({rem} left)"):
+                    if req: storage["pending_requests"][my_cabin] = req; st.toast("Request Sent.")
+
+            col_opt1, col_opt2 = st.columns(2)
+            with col_opt2:
                 reason = st.text_input("Opt-Out Reason:")
-                if st.button("Select as Opted Out"):
+                if st.button("Mark as Opted Out"):
                     storage["opted_out"].append({"Customer": cust_name, "Reason": reason, "Date": datetime.datetime.now().strftime("%d/%m/%Y")})
                     reset_cabin_session(my_cabin); st.rerun()
 
@@ -294,46 +275,55 @@ else:
                 match = inventory[inventory['ID'].astype(str).str.upper() == search_id]
                 if not match.empty:
                     row = match.iloc[0]
-                    res = calculate_negotiation(clean_numeric(row.get('Agreement Value', 0)), 0, 0, False, False)
-                    # Onscreen Cost Sheet
-                    st.markdown(f"<div style='border:1px solid black; padding:10px;'><h3>{search_id}</h3><p>Parking: {res['Parking Text']}</p><h4>Total: {format_indian_currency(res['Total'])}</h4></div>", unsafe_allow_html=True)
-                    if st.button("Finalize & Download"):
-                        download_dialog(search_id, row.get('Floor','N/A'), row.get('CARPET','N/A'), res, cust_name, datetime.datetime.now().strftime("%d/%m/%Y"), False, my_cabin)
+                    use_p = st.checkbox("Include Parking")
+                    res = calculate_negotiation(clean_numeric(row.get('Agreement Value', 0)), 0, 0, use_p, False)
+                    st.markdown(f"<div style='border:1px solid black; padding:15px;'><h3>Unit {search_id}</h3><p>Parking: {res['Parking Text']}</p><h4>Total: {format_indian_currency(res['Total'])}</h4></div>", unsafe_allow_html=True)
+                    if st.button("Download & Finalize"):
+                        download_dialog(search_id, row.get('Floor','N/A'), row.get('CARPET','N/A'), res, cust_name, datetime.datetime.now().strftime("%d/%m/%Y"), use_p, my_cabin)
 
     # --- ADMIN DASHBOARD ---
     elif st.session_state.role == "Tarangan":
         st.title("🛠️ Master Admin")
-        if st.button("🔄 Refresh All Data"): st.rerun()
-        t1, t2, t3, t4, t5 = st.tabs(["Sales Report", "Opted Out", "Release Inventory", "Non-Visited", "Reset"])
+        if st.button("🔄 Global Refresh"): st.rerun()
+        t1, t2, t3, t4, t5, t6 = st.tabs(["Unit Requests", "Sales Report", "Opted Out", "Release Inventory", "Non-Visited", "Reset"])
         
         with t1:
-            if storage["download_history"]: st.dataframe(pd.DataFrame(storage["download_history"]))
-        
+            st.subheader("Pending Unblock Requests")
+            for c, u in list(storage["pending_requests"].items()):
+                col_r1, col_r2 = st.columns([3, 1])
+                col_r1.write(f"**Cabin {c}** wants to unblock **Unit {u}**")
+                if col_r2.button("Approve", key=f"app_{c}"):
+                    storage["approved_units"][c].append(u); storage["unblock_counts"][c]+=1; del storage["pending_requests"][c]; st.rerun()
+            st.write("---")
+            st.subheader("Revoke Approved Units")
+            for c, units in storage["approved_units"].items():
+                for u in units:
+                    if st.button(f"Revoke {u} from {c}", key=f"rev_{c}_{u}"):
+                        storage["approved_units"][c].remove(u); storage["unblock_counts"][c]=max(0, storage["unblock_counts"][c]-1); st.rerun()
         with t2:
-            st.dataframe(pd.DataFrame(storage["opted_out"]))
-            
+            if storage["download_history"]: st.dataframe(pd.DataFrame(storage["download_history"]))
         with t3:
-            u_rel = st.selectbox("Release Booked Unit:", sorted(list(storage["sold_units"])))
-            if st.button("Unblock & Release"):
-                storage["sold_units"].remove(u_rel)
-                storage["download_history"] = [d for d in storage["download_history"] if d.get("Unit No") != u_rel]
-                st.success("Inventory released."); st.rerun()
-
+            if storage["opted_out"]: st.dataframe(pd.DataFrame(storage["opted_out"]))
         with t4:
-            st.subheader("Non-Visited Customers by Slot")
-            inventory = load_data()
-            allotted_list = inventory.dropna(subset=['Customer Allotted'])
-            for s in ["Slot 1", "Slot 2", "Slot 3"]:
-                st.write(f"### {s}")
-                nv = []
-                for _, row in allotted_list.iterrows():
-                    slot, _ = get_slot_info(row['Token No'])
-                    if slot == s and row['Customer Allotted'] not in storage["visited_customers"]:
-                        nv.append({"Customer": row['Customer Allotted'], "Token": row['Token No']})
-                st.table(nv if nv else [{"Customer": "All Visited", "Token": "-"}])
-
+            u_rel = st.selectbox("Release Sold Unit:", sorted(list(storage["sold_units"])))
+            if st.button("Wipe Booking"):
+                storage["sold_units"].remove(u_rel)
+                storage["download_history"] = [d for d in storage["download_history"] if d.get("Unit No") != u_rel]; st.rerun()
         with t5:
+            inventory = load_data(); allotted_list = inventory.dropna(subset=['Customer Allotted'])
+            for s in ["Slot 1", "Slot 2", "Slot 3"]:
+                st.write(f"### {s}"); nv = []
+                for _, row in allotted_list.iterrows():
+                    slot, _ = get_slot_info(row['TOKEN NO']) # FIXED KEY
+                    if slot == s and row['Customer Allotted'] not in storage["visited_customers"]:
+                        nv.append({"Customer": row['Customer Allotted'], "Token": row['TOKEN NO']})
+                st.table(nv if nv else [{"Customer": "All Visited", "Token": "-"}])
+        with t6:
             if st.text_input("Master Pass", type="password") == "Atharva Joshi":
-                if st.button("WIPE SYSTEM"): 
+                if st.button("🚨 WIPE ENTIRE SYSTEM"):
                     storage["sold_units"].clear(); storage["download_history"].clear(); storage["opted_out"].clear()
-                    storage["visited_customers"].clear(); st.rerun()
+                    storage["visited_customers"].clear(); storage["pending_requests"].clear()
+                    for b in storage["booths"]: storage["booths"][b] = None
+                    for b in storage["approved_units"]: storage["approved_units"][b] = []
+                    for b in storage["unblock_counts"]: storage["unblock_counts"][b] = 0
+                    st.rerun()
