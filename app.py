@@ -246,9 +246,7 @@ else:
                             box-shadow: 0 4px 10px rgba(212, 175, 55, 0.3);">
                             <p style="color: #D4AF37; font-size: 9px; font-weight: bold; margin: 0; letter-spacing: 1px;">TOP CHOICE #{i+1}</p>
                             <p style="color: white; font-size: 18px; font-weight: 900; margin: 3px 0;">{uid}</p>
-                            <div style="background: rgba(0, 255, 0, 0.1); border-radius: 20px; display: inline-block; padding: 1px 8px;">
-                                <p style="color: #00FF00; font-size: 9px; margin: 0; font-weight: bold;">● {available_hits[uid]} LIVE VIEWS</p>
-                            </div>
+                            
                         </div>
                         """, unsafe_allow_html=True)
 
