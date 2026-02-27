@@ -356,38 +356,42 @@ else:
             if storage["download_history"]:
                 df_report = pd.DataFrame(storage["download_history"])
 
-                # --- 1. DATA CLEANING (Prevents ValueErrors) ---
-                # This ensures numeric columns are actually numbers for the math below
-                num_cols = ["Agreement Value", "GST", "Stamp Duty", "Registration", "Discount", "Total Package"]
-                for col in num_cols:
-                    if col in df_report.columns:
-                        df_report[col] = pd.to_numeric(df_report[col], errors='coerce').fillna(0)
-
-                # --- 2. SUMMARY METRICS ---
-                m1, m2, m3 = st.columns(3)
-                total_rev = int(df_report["Total Package"].sum())
-                total_disc = int(df_report["Discount"].sum())
+                # --- BULLETPROOF DATA ALIGNMENT ---
+                # 1. If old data used "Total", rename it to "Total Package"
+                if "Total" in df_report.columns and "Total Package" not in df_report.columns:
+                    df_report = df_report.rename(columns={"Total": "Total Package"})
                 
+                # 2. If "Total Package" is still missing (empty history), create it as 0
+                if "Total Package" not in df_report.columns:
+                    df_report["Total Package"] = 0
+                
+                # 3. Clean the values (Remove commas/strings) and convert to numbers
+                df_report["Total Package"] = pd.to_numeric(
+                    df_report["Total Package"].astype(str).str.replace(r'[^\d.]', '', regex=True), 
+                    errors='coerce'
+                ).fillna(0)
+
+                # --- SAFE CALCULATION ---
+                total_rev = int(df_report["Total Package"].sum())
+                
+                # Repeat for Discount
+                if "Discount" in df_report.columns:
+                    df_report["Discount"] = pd.to_numeric(
+                        df_report["Discount"].astype(str).str.replace(r'[^\d.]', '', regex=True), 
+                        errors='coerce'
+                    ).fillna(0)
+                    total_disc = int(df_report["Discount"].sum())
+                else:
+                    total_disc = 0
+
+                # --- DISPLAY METRICS ---
+                m1, m2, m3 = st.columns(3)
                 m1.metric("Total Units Sold", len(df_report))
                 m2.metric("Total Revenue", f"₹ {format_indian_currency(total_rev)}")
-                m3.metric("Total Discounts Given", f"₹ {format_indian_currency(total_disc)}")
+                m3.metric("Total Discounts", f"₹ {format_indian_currency(total_disc)}")
 
                 st.divider()
-
-                # --- 3. FILTER BY SALES PERSON ---
-                all_sales = ["All"] + sorted(df_report["Sales Person"].unique().tolist())
-                selected_sales = st.selectbox("Filter by Sales Person:", all_sales)
-                
-                display_df = df_report
-                if selected_sales != "All":
-                    display_df = df_report[df_report["Sales Person"] == selected_sales]
-
-                st.write(f"Showing transactions for: **{selected_sales}**")
-                st.dataframe(display_df, use_container_width=True)
-                
-                # --- 4. EXPORT ---
-                csv = display_df.to_csv(index=False).encode('utf-8')
-                st.download_button("📥 Export Current View to CSV", csv, "Tarangan_Sales_Report.csv", "text/csv")
+                st.dataframe(df_report, use_container_width=True)
             else:
                 st.info("No sales data available yet.")
 
