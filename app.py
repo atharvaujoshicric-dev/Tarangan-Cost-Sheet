@@ -171,13 +171,11 @@ if 'authenticated' not in st.session_state: st.session_state.authenticated = Fal
 
 if not st.session_state.authenticated:
     st.title("🔐 Tarangan Login")
-    u = st.text_input("Username")
-    p = st.text_input("Password", type="password")
+    u, p = st.text_input("Username"), st.text_input("Password", type="password")
     if st.button("Login"):
         creds = {"Tarangan": "Tarangan@0103", "Sales": "Sales@2026", "GRE": "Gre@2026", "Manager": "Manager@2026"}
         if u in creds and p == creds[u]:
             st.session_state.authenticated, st.session_state.role, st.session_state.user_id = True, u, u
-            log_activity(u, "LOGIN", "Successful login")
             st.rerun()
         else: st.error("Invalid credentials.")
 else:
@@ -212,7 +210,6 @@ else:
     elif st.session_state.role == "Sales":
         st.title("🏙️ Stage 3: Sales Portal")
         
-        # Refresh Button
         if st.button("🔄 Refresh Inventory"):
             st.rerun()
 
@@ -225,9 +222,24 @@ else:
             st.success(f"Serving: {cust_name}")
             inventory = load_data()
             
-            # Hot Selling Identification
-            hot_list = [u for u, c in sorted(storage["unit_hits"].items(), key=lambda x: x[1], reverse=True)[:3]]
+            # --- HOT SELLING LOGIC (Exclude Sold Units) ---
+            # Filter hits to only include units that are NOT sold
+            available_hits = {u: c for u, c in storage["unit_hits"].items() if u not in storage["sold_units"]}
+            hot_list = [u for u, c in sorted(available_hits.items(), key=lambda x: x[1], reverse=True)[:3]]
             
+            if hot_list:
+                st.subheader("🔥 Top 3 Hottest Selling Units (Available)")
+                h_cols = st.columns(3)
+                for i, uid in enumerate(hot_list):
+                    with h_cols[i]:
+                        st.markdown(f"""
+                        <div style="background-color: #FFF3E0; border: 2px solid #FF9800; border-radius: 10px; padding: 10px; text-align: center;">
+                            <h4 style="color: #E65100; margin: 0;"># {i+1} HOT SELLING</h4>
+                            <p style="font-size: 20px; font-weight: bold; margin: 5px 0;">Unit {uid}</p>
+                            <span style="font-size: 12px; color: #666;">Views: {available_hits[uid]}</span>
+                        </div>
+                        """, unsafe_allow_html=True)
+
             search_id = st.session_state.get("search_id_input", "").upper()
             
             # Inventory Grid (6 units per line)
@@ -241,26 +253,21 @@ else:
                     is_restricted = uid in ["A-705", "A-1205"]
                     
                     with grid_cols[idx % 6]:
-                        # Default Yellow
-                        lbl = f"🟡 {uid}"
-                        
                         if is_sold:
-                            lbl = f"🟢 {uid}" # Green for Booked
+                            lbl, clr = f"🟢 {uid}", True
                         elif is_busy:
-                            lbl = f"🔴 BUSY"   # Red for Busy
+                            lbl, clr = f"🔴 BUSY", True
                         elif is_hot:
-                            lbl = f"🟠 {uid}" # Orange for Hot
+                            lbl, clr = f"🟠 {uid}", False
+                        else:
+                            lbl, clr = f"🟡 {uid}", False
                         
-                        # Apply restriction and state
-                        if st.button(lbl, key=f"btn_{uid}", use_container_width=True, disabled=is_sold or is_busy or is_restricted):
+                        if st.button(lbl, key=f"btn_{uid}", use_container_width=True, disabled=clr or is_restricted):
                             st.session_state.search_id_input = uid
                             storage["unit_hits"][uid] = storage["unit_hits"].get(uid, 0) + 1
                             st.rerun()
-                
-                if "A-705" in inventory['ID'].values or "A-1205" in inventory['ID'].values:
-                    st.caption("Note: Units A-705 and A-1205 are locked by Management.")
 
-            # On-screen Cost Sheet (Original monochrome logic)
+            # Monochrome Cost Sheet
             if search_id:
                 match = inventory[inventory['ID'].astype(str).str.upper() == search_id]
                 if not match.empty:
@@ -304,10 +311,10 @@ else:
                     with col_r:
                         st.button("❌ Close / Release", on_click=release_unit_callback, args=(search_id,))
 
-    # --- ADMIN DASHBOARD ---
+    # --- ADMIN ---
     elif st.session_state.role == "Tarangan":
         st.title("🛠️ Admin Master Dashboard")
-        t1, t2 = st.tabs(["Activity Tracker (Excel)", "System Management"])
+        t1, t2 = st.tabs(["Activity Tracker", "System Management"])
         with t1:
             if storage["activity_log"]:
                 df_log = pd.DataFrame(storage["activity_log"])
