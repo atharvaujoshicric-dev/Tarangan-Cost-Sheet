@@ -138,59 +138,58 @@ else:
         if st.button("🚪 Logout"): st.session_state.authenticated = False; st.rerun()
 
     # --- GRE DASHBOARD ---
+    # --- GRE DASHBOARD ---
     if st.session_state.role == "GRE":
-        st.title("📝 GRE Dashboard")
-        inventory = load_data()
-        allotted = sorted(list(inventory['Customer Allotted'].dropna().unique()))
+        st.title("📝 Stage 1: GRE Entry")
         
-        tab_add, tab_manage = st.tabs(["➕ Add Customer", "⚙️ Manage Waiting List"])
+        tab_add, tab_edit = st.tabs(["Add Customer", "Manage Waiting List"])
         
         with tab_add:
-            col_a, col_b = st.columns(2)
-            with col_a:
-                st.subheader("From Allotted List")
-                name_sel = st.selectbox("Select Customer:", ["Select"] + allotted)
-                if st.button("Add Allotted to Queue"):
-                    if name_sel != "Select":
-                        if name_sel not in storage["waiting_customers"]:
-                            storage["waiting_customers"].append(name_sel)
-                            storage["visited_customers"].add(name_sel)
-                            st.success(f"Added {name_sel}")
-                        else: st.warning("Customer already in queue.")
-            
-            with col_b:
-                st.subheader("Walk-in Customer")
-                walkin_name = st.text_input("Enter Walk-in Name:")
-                if st.button("Add Walk-in to Queue"):
-                    if walkin_name.strip():
-                        storage["waiting_customers"].append(walkin_name.strip())
-                        storage["visited_customers"].add(walkin_name.strip())
-                        st.success(f"Added Walk-in: {walkin_name}")
-                    else: st.error("Please enter a name.")
+            with st.form("gre_add", clear_on_submit=True):
+                name = st.text_input("Customer Name").strip()
+                submit = st.form_submit_button("Submit")
+                
+                if submit:
+                    if not name:
+                        st.error("Please enter a name.")
+                    else:
+                        # 1. Check current waiting list
+                        in_waiting = name.upper() in [c.upper() for c in storage["waiting_customers"]]
+                        
+                        # 2. Check current cabins (Booths)
+                        in_cabins = name.upper() in [str(v).upper() for v in storage["booths"].values() if v is not None]
+                        
+                        # 3. Check if they already visited/bought (Optional but recommended)
+                        already_visited = name.upper() in [str(h.get('Customer', '')).upper() for h in storage.get("download_history", [])]
 
-        with tab_manage:
+                        if in_waiting:
+                            st.warning(f"'{name}' is already in the Waiting List.")
+                        elif in_cabins:
+                            st.warning(f"'{name}' is currently inside a Sales Cabin.")
+                        elif already_visited:
+                            st.info(f"'{name}' has already visited today/purchased a unit.")
+                        else:
+                            # Add to storage
+                            storage["waiting_customers"].append(name)
+                            log_activity(st.session_state.user_id, "GRE_ENTRY", f"Added customer: {name}")
+                            st.success(f"Customer '{name}' added successfully!")
+                            st.rerun()
+
+        with tab_edit:
+            st.subheader("Current Waiting List")
             if storage["waiting_customers"]:
-                st.subheader("Edit / Change Name")
-                # Option for GRE to change the name
-                edit_idx = st.selectbox("Select Customer to Edit:", range(len(storage["waiting_customers"])), 
-                                        format_func=lambda x: storage["waiting_customers"][x])
+                # Create a table for easy viewing
+                df_wait = pd.DataFrame(storage["waiting_customers"], columns=["Customer Name"])
+                st.table(df_wait)
                 
-                new_name = st.text_input("Change Name to:", value=storage["waiting_customers"][edit_idx])
-                
-                c1, c2 = st.columns(2)
-                if c1.button("✅ Update Name"):
-                    if new_name.strip():
-                        storage["waiting_customers"][edit_idx] = new_name.strip()
-                        st.success("Name updated.")
-                        st.rerun()
-                
-                if c2.button("🗑️ Remove from Queue"):
-                    storage["waiting_customers"].pop(edit_idx)
+                # Option to remove a customer if they leave
+                to_remove = st.selectbox("Select to Remove (if customer left):", ["--Select--"] + storage["waiting_customers"])
+                if st.button("Remove Customer") and to_remove != "--Select--":
+                    storage["waiting_customers"].remove(to_remove)
                     st.rerun()
             else:
-                st.info("The waiting list is currently empty.")
+                st.info("Waiting list is empty.")
 
-    # --- MANAGER DASHBOARD ---
     # --- MANAGER DASHBOARD ---
     elif st.session_state.role == "Manager":
         st.title("👔 Manager Assignment")
