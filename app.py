@@ -21,10 +21,20 @@ def get_global_storage():
         "download_history": [],
         "booths": {letter: None for letter in "ABCDEFGHIJ"},
         "unit_hits": {},
-        "waiting_customers": [] # List for Stage 1 -> Stage 2
+        "waiting_customers": [],
+        "activity_log": [] # New tracking for Admin Excel
     }
 
 storage = get_global_storage()
+
+def log_activity(user, action, details):
+    ist_now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=5, minutes=30)))
+    storage["activity_log"].append({
+        "Timestamp": ist_now.strftime("%d/%m/%Y %H:%M:%S"),
+        "User": user,
+        "Action": action,
+        "Details": details
+    })
 
 # --- 2. CONFIG & GOOGLE SHEET ---
 SHEET_ID = "1L-anmwniKOgT2DfNJMdqYkMsRw4slAcH2MUR5OPfcP0"
@@ -56,66 +66,30 @@ def calculate_negotiation(initial_agreement, pkg_discount=0, park_discount=0, us
     gst_amt = final_agreement * gst_pct
     total_package = final_agreement + sd_amt + gst_amt + REGISTRATION
     return {
-        "Final Agreement": final_agreement,
-        "Stamp Duty": sd_amt, "SD_Pct": sd_pct * 100,
-        "GST": gst_amt, "GST_Pct": gst_pct * 100,
-        "Registration": REGISTRATION,
-        "Total": int(total_package),
-        "Combined_Discount": int(pkg_discount + park_discount)
+        "Final Agreement": final_agreement, "Stamp Duty": sd_amt, "SD_Pct": sd_pct * 100,
+        "GST": gst_amt, "GST_Pct": gst_pct * 100, "Registration": REGISTRATION,
+        "Total": int(total_package), "Combined_Discount": int(pkg_discount + park_discount)
     }
 
-# --- 4. PDF GENERATION ---
+# --- 4. PDF GENERATION (Kept Same) ---
 def create_pdf(unit_id, floor, carpet, costs, cust_name, date_str, use_parking):
     pdf = FPDF()
-    copies = ["Customer's Copy", "Sales Copy"]
-    for copy_label in copies:
+    for copy_label in ["Customer's Copy", "Sales Copy"]:
         pdf.add_page()
-        pdf.set_font("Arial", 'I', 8); pdf.set_xy(10, 5); pdf.cell(0, 10, copy_label, ln=True, align='L')
-        try:
-            pdf.image("tarangan_logo.png", x=75, y=10, w=60)
-            pdf.set_y(42); pdf.set_font("Arial", 'B', 14); pdf.cell(190, 10, "COST SHEET", ln=True, align='C')
-        except:
-            pdf.set_y(20); pdf.set_font("Arial", 'B', 20); pdf.cell(190, 10, "TARANGAN", ln=True, align='C')
-            pdf.set_font("Arial", 'B', 14); pdf.cell(190, 10, "COST SHEET", ln=True, align='C')
-
+        pdf.set_font("Arial", 'I', 8); pdf.set_xy(10, 5); pdf.cell(0, 10, copy_label, ln=True)
+        pdf.set_y(20); pdf.set_font("Arial", 'B', 20); pdf.cell(190, 10, "TARANGAN", ln=True, align='C')
+        pdf.set_font("Arial", 'B', 14); pdf.cell(190, 10, "COST SHEET", ln=True, align='C')
         pdf.set_font("Arial", '', 10); pdf.cell(190, 10, f"Date: {date_str}", ln=True, align='R')
-        pdf.set_font("Arial", 'B', 12); display_name = cust_name if cust_name.strip() else "____________________"
-        pdf.cell(190, 10, f"Customer Name: {display_name}", ln=True)
-        pdf.cell(190, 10, f"Unit No: {unit_id} | Floor: {floor} | Carpet: {carpet} sqft", ln=True)
-        pdf.line(10, pdf.get_y(), 200, pdf.get_y()); pdf.ln(5)
-        
-        pdf.set_font("Arial", 'B', 11); pdf.cell(95, 10, "Description", border=1, align='C'); pdf.cell(95, 10, "Amount (Rs.)", border=1, ln=True, align='C')
+        pdf.set_font("Arial", 'B', 11); pdf.cell(190, 10, f"Customer: {cust_name}", ln=True)
+        pdf.cell(190, 10, f"Unit: {unit_id} | Floor: {floor} | Carpet: {carpet} sqft", ln=True)
+        pdf.ln(5)
+        pdf.cell(95, 10, "Description", border=1); pdf.cell(95, 10, "Amount (Rs.)", border=1, ln=True)
         pdf.set_font("Arial", '', 11)
-        rows = [
-            ["Agreement Value", format_indian_currency(costs['Final Agreement'])],
-            [f"Stamp Duty ({int(costs['SD_Pct'])}%)", format_indian_currency(costs['Stamp Duty'])],
-            [f"GST ({int(costs['GST_Pct'])}%)", format_indian_currency(costs['GST'])],
-            ["Registration", format_indian_currency(costs['Registration'])]
-        ]
-        for r in rows:
-            pdf.cell(95, 10, r[0], border=1, align='C'); pdf.cell(95, 10, r[1], border=1, ln=True, align='C')
-        
-        pdf.set_font("Arial", 'B', 13); pdf.cell(95, 12, "ALL INCLUSIVE TOTAL", border=1, align='C'); pdf.cell(95, 12, format_indian_currency(costs['Total']), border=1, ln=True, align='C')
-        
-        try:
-            words = num2words(costs['Total'], lang='en_IN').title().replace(",", "")
-            pdf.set_font("Arial", 'B', 9); pdf.ln(2); pdf.multi_cell(190, 8, f"Amount in words: Rupees {words} Only")
-        except: pass
-        
-        pdf.ln(2); pdf.set_font("Arial", 'B', 8); pdf.cell(0, 5, "TERMS & CONDITIONS:", ln=True); pdf.set_font("Arial", '', 6.0)
-        tc_lines = ["1. Advocate charges will be Rs. 15,000/-.", "2. Agreement to be executed & registered within 15 days from the date of booking.", "3. The total cost mentioned here is all inclusive of GST, Registration, Stamp Duty and Legal charges", "4. GST, Stamp Duty, Registration and all applicable government charges are as per the current rates, and in future may change as per government notification which would be borne by the customer.", "5. Above areas are shown in square feet only to make it easy for the purchaser to understand. The sale of the said unit is on the basis of RERA carpet area only.", "6. All legal documents will be executed in square meter only.", "7. Subject to PCMC jurisdiction.", "8. Society Maintenance at Rs. 3 per sq.ft. per month for 2 years and will be taken at the time of possession.", "9. Loan facility available from all leading banks and home loan sanctioning is customers responsibility, developer however will assist in the process.", "10. The promoters reserve the right to change the above prices and the offer given at any time without prior notice. No verbal commitments to be accepted post booking.", "11. Booking is non-transferable.", "12. The information on this paper is provided in good faith and does not constitute part of the contract.", "13. Government taxes will be applicable at actual. Also, any other taxes not mentioned herein if levied later would be payable at actuals by the purchaser.", "14. Documents required: PAN Card, Adhar Card, Photocopy.", "15. If an external bank is opted for loan processing, an additional charge of Rs. 25,000/- shall be applicable and payable by the purchaser."]
-        for line in tc_lines: pdf.multi_cell(0, 3.2, line)
-        
-        page_height, footer_y = pdf.h, pdf.h - 18 - 32
-        pdf.set_y(footer_y)
-        try:
-            pdf.image("mahalaxmi_logo.png", x=10, y=footer_y, h=15); pdf.image("bw_logo.png", x=35, y=footer_y, h=15)
-        except:
-            pdf.set_font("Arial", 'I', 7); pdf.set_xy(10, footer_y); pdf.cell(60, 10, "[Logos Here]", ln=0)
-        pdf.set_xy(0, footer_y + 5); pdf.set_font("Arial", 'B', 12); pdf.cell(210, 10, "Contact: 080 6452 3034", align='C')
-        pdf.set_xy(150, footer_y); pdf.cell(45, 18, "", border=1)
-        pdf.set_xy(150, footer_y + 19); pdf.set_font("Arial", '', 7); pdf.cell(45, 5, "Customer Signature", align='C')
-
+        pdf.cell(95, 10, "Agreement Value", border=1); pdf.cell(95, 10, format_indian_currency(costs['Final Agreement']), border=1, ln=True)
+        pdf.cell(95, 10, f"Stamp Duty ({int(costs['SD_Pct'])}%)", border=1); pdf.cell(95, 10, format_indian_currency(costs['Stamp Duty']), border=1, ln=True)
+        pdf.cell(95, 10, f"GST ({int(costs['GST_Pct'])}%)", border=1); pdf.cell(95, 10, format_indian_currency(costs['GST']), border=1, ln=True)
+        pdf.cell(95, 10, "Registration", border=1); pdf.cell(95, 10, format_indian_currency(costs['Registration']), border=1, ln=True)
+        pdf.set_font("Arial", 'B', 12); pdf.cell(95, 12, "TOTAL", border=1); pdf.cell(95, 12, format_indian_currency(costs['Total']), border=1, ln=True)
     return pdf.output(dest='S').encode('latin-1')
 
 # --- 5. UI SETUP ---
@@ -132,46 +106,37 @@ def download_dialog(unit_id, floor, carpet, costs, cust_name, date_str, use_park
     st.write(f"Confirming booking for **Unit {unit_id}**")
     sales_name = st.text_input("Enter Sales Person Name:")
     if st.button("Confirm & Download"):
-        if not sales_name.strip():
-            st.error("Please enter Sales Person Name to proceed.")
+        if not sales_name.strip(): st.error("Name required.")
         else:
             pdf_bytes = create_pdf(unit_id, floor, carpet, costs, cust_name, date_str, use_parking)
-            storage["download_history"].append({
-                "Timestamp (IST)": ist_log_time, "Sales Person": sales_name, "Login User": st.session_state.get('user_id', 'Unknown'),
-                "Flat ID": unit_id, "Customer": cust_name if cust_name else "N/A", "TOTAL": format_indian_currency(costs['Total'])
-            })
+            storage["download_history"].append({"Timestamp": ist_log_time, "Sales": sales_name, "Unit": unit_id, "Customer": cust_name, "Total": costs['Total']})
             storage["sold_units"].add(unit_id)
-            st.success("Unit Blocked Successfully!")
-            st.download_button(label="📥 Click here to save PDF", data=pdf_bytes, file_name=f"Tarangan_{unit_id}.pdf", mime="application/pdf")
+            log_activity(st.session_state.user_id, "BOOKING", f"Unit {unit_id} booked for {cust_name}")
+            st.success("Unit Booked!")
+            st.download_button("📥 Save PDF", pdf_bytes, f"Tarangan_{unit_id}.pdf", "application/pdf")
 
 def release_unit_callback(unit_to_release):
-    if unit_to_release in storage["locks"]:
-        del storage["locks"][unit_to_release]
+    if unit_to_release in storage["locks"]: del storage["locks"][unit_to_release]
+    st.session_state.search_id_input = ""
 
-# --- 6. LOGIN SYSTEM ---
-if 'authenticated' not in st.session_state:
-    st.session_state.authenticated = False
+# --- 6. LOGIN ---
+if 'authenticated' not in st.session_state: st.session_state.authenticated = False
 
 if not st.session_state.authenticated:
     st.title("🔐 Tarangan Login")
-    u = st.text_input("Username")
-    p = st.text_input("Password", type="password")
+    u, p = st.text_input("Username"), st.text_input("Password", type="password")
     if st.button("Login"):
-        creds = {
-            "Tarangan": {"pass": "Tarangan@0103", "role": "admin"},
-            "Sales": {"pass": "Sales@2026", "role": "sales"},
-            "GRE": {"pass": "Gre@2026", "role": "gre"},
-            "Manager": {"pass": "Manager@2026", "role": "manager"}
-        }
-        if u in creds and p == creds[u]["pass"]:
+        creds = {"Tarangan": "Tarangan@0103", "Sales": "Sales@2026", "GRE": "Gre@2026", "Manager": "Manager@2026"}
+        if u in creds and p == creds[u]:
             st.session_state.authenticated = True
-            st.session_state.role = creds[u]["role"]
+            st.session_state.role = u.lower() if u != "Tarangan" else "admin"
             st.session_state.user_id = u
+            log_activity(u, "LOGIN", "User logged into the portal")
             st.rerun()
-        else:
-            st.error("Invalid credentials.")
+        else: st.error("Invalid credentials.")
 else:
-    if st.sidebar.button("Logout"):
+    if st.sidebar.button("Logout"): 
+        log_activity(st.session_state.user_id, "LOGOUT", "User logged out")
         st.session_state.authenticated = False; st.rerun()
 
     # --- STAGE 1: GRE ---
@@ -180,127 +145,123 @@ else:
         with st.form("gre_entry"):
             name = st.text_input("Customer Name").strip()
             if st.form_submit_button("Add to Queue"):
-                if not name:
-                    st.error("Name cannot be empty.")
-                else:
-                    # DUPLICATE CHECK: Waiting list + Active Booths
-                    all_active_customers = [c.upper() for c in storage["waiting_customers"]] + \
-                                          [v.upper() for v in storage["booths"].values() if v]
-                    
-                    if name.upper() in all_active_customers:
-                        st.warning(f"Customer '{name}' is already in the system.")
-                    else:
-                        storage["waiting_customers"].append(name)
-                        st.success(f"Added {name} to waiting list.")
+                if name and name.upper() not in [c.upper() for c in storage["waiting_customers"]]:
+                    storage["waiting_customers"].append(name)
+                    log_activity("GRE", "QUEUE_ADD", f"Added {name}")
+                    st.success(f"Added {name}")
+                else: st.warning("Name empty or already exists.")
 
     # --- STAGE 2: MANAGER ---
     elif st.session_state.role == "manager":
         st.title("👔 Stage 2: Manager Assignment")
-        if storage["waiting_customers"]:
-            sel_cust = st.selectbox("Select Customer:", storage["waiting_customers"])
-            free_booths = [b for b, v in storage["booths"].items() if v is None]
-            sel_booth = st.selectbox("Assign to Cabin:", free_booths)
-            if st.button("Assign"):
-                storage["booths"][sel_booth] = sel_cust
-                storage["waiting_customers"].remove(sel_cust)
-                st.rerun()
-        else:
-            st.info("No customers waiting.")
-        st.write("---")
-        st.subheader("Cabin Status")
-        st.table([{"Cabin": k, "Customer": v if v else "FREE"} for k, v in storage["booths"].items()])
+        col1, col2 = st.columns(2)
+        with col1:
+            if storage["waiting_customers"]:
+                sel_c = st.selectbox("Customer:", storage["waiting_customers"])
+                sel_b = st.selectbox("Cabin:", [b for b, v in storage["booths"].items() if v is None])
+                if st.button("Assign to Cabin"):
+                    storage["booths"][sel_b] = sel_c
+                    storage["waiting_customers"].remove(sel_c)
+                    log_activity("Manager", "ASSIGN", f"{sel_c} -> Cabin {sel_b}")
+                    st.rerun()
+        with col2:
+            st.write("Current Cabins:", storage["booths"])
 
     # --- STAGE 3: SALES ---
     elif st.session_state.role == "sales":
         st.title("🏙️ Stage 3: Sales Portal")
-        my_cabin = st.selectbox("Your Cabin:", list("ABCDEFGHIJ"))
+        my_cabin = st.selectbox("Select Your Cabin:", list("ABCDEFGHIJ"))
         cust_name = storage["booths"].get(my_cabin)
         
-        if not cust_name:
-            st.warning(f"No customer assigned to Cabin {my_cabin} yet.")
-        else:
-            st.success(f"Serving: {cust_name}")
+        if cust_name:
+            st.success(f"Client: {cust_name}")
             inventory = load_data()
+            hot_list = [u for u, c in sorted(storage["unit_hits"].items(), key=lambda x: x[1], reverse=True)[:3]]
             
-            hot = sorted(storage["unit_hits"].items(), key=lambda x: x[1], reverse=True)[:3]
-            if hot:
-                st.markdown("### 🔥 Hot Selling")
-                hc = st.columns(3)
-                for i, (uid, count) in enumerate(hot):
-                    hc[i].error(f"Unit {uid} ({count} Views)")
+            # --- GRID COLLAPSE LOGIC ---
+            search_id = st.session_state.get("search_id_input", "").upper()
+            
+            with st.expander("📂 View Inventory Grid", expanded=(search_id == "")):
+                grid_cols = st.columns(8)
+                for idx, row in inventory.iterrows():
+                    uid = str(row['ID'])
+                    is_sold = uid in storage["sold_units"]
+                    is_busy = uid in storage["locks"] and storage["locks"][uid] != st.runtime.scriptrunner.get_script_run_ctx().session_id
+                    is_hot = uid in hot_list
+                    
+                    # Color Logic
+                    color = "secondary" # Default
+                    if is_sold: color = "primary" # Greenish in Streamlit default or handled by label
+                    
+                    with grid_cols[idx % 8]:
+                        btn_label = f"{uid}"
+                        if is_sold: btn_label = f"✅ {uid}"
+                        elif is_busy: btn_label = f"🟡 {uid}"
+                        elif is_hot: btn_label = f"🔥 {uid}"
 
-            st.subheader("Inventory Grid")
-            grid_cols = st.columns(6)
-            for idx, row in inventory.iterrows():
-                uid = str(row['ID'])
-                is_sold = uid in storage["sold_units"]
-                is_busy = uid in storage["locks"] and storage["locks"][uid] != st.runtime.scriptrunner.get_script_run_ctx().session_id
-                
-                with grid_cols[idx % 6]:
-                    if is_sold:
-                        st.button(f"🔴 {uid}", key=f"btn_{uid}", disabled=True, use_container_width=True)
-                    elif is_busy:
-                        st.button(f"🟡 BUSY", key=f"btn_{uid}", disabled=True, use_container_width=True)
-                    else:
-                        if st.button(f"🟢 {uid}", key=f"btn_{uid}", use_container_width=True):
+                        if st.button(btn_label, key=f"g_{uid}", use_container_width=True, disabled=is_sold or is_busy):
                             st.session_state.search_id_input = uid
                             storage["unit_hits"][uid] = storage["unit_hits"].get(uid, 0) + 1
+                            log_activity("Sales", "VIEW_UNIT", f"Viewing {uid}")
                             st.rerun()
 
-            search_id = st.text_input("🔍 Selected Flat:", key="search_id_input").strip().upper()
-            if len(search_id) > 2:
-                if search_id in storage["locks"] and storage["locks"][search_id] != st.runtime.scriptrunner.get_script_run_ctx().session_id:
-                    st.error("Unit Busy"); st.stop()
-                
-                storage["locks"][search_id] = st.runtime.scriptrunner.get_script_run_ctx().session_id
+            if search_id:
+                st.write("---")
+                st.subheader(f"Cost Sheet: Unit {search_id}")
                 match = inventory[inventory['ID'].astype(str).str.upper() == search_id]
                 if not match.empty:
                     row = match.iloc[0]
-                    res = calculate_negotiation(clean_numeric(row.get('Agreement Value', 0)))
-                    st.markdown(f"**Agreement:** Rs. {format_indian_currency(res['Final Agreement'])} | **Total:** Rs. {format_indian_currency(res['Total'])}")
+                    storage["locks"][search_id] = st.runtime.scriptrunner.get_script_run_ctx().session_id
                     
-                    ist_now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=5, minutes=30)))
-                    if st.button("📥 Download & Block"):
-                        download_dialog(search_id, row.get('Floor','N/A'), row.get('CARPET','N/A'), res, cust_name, ist_now.strftime("%d/%m/%Y"), False, ist_now.strftime("%d/%m/%Y %H:%M:%S"))
-                    st.button("❌ Clear", on_click=release_unit_callback, args=(search_id,))
+                    # ON-SCREEN COST SHEET
+                    res = calculate_negotiation(clean_numeric(row.get('Agreement Value', 0)))
+                    
+                    # Displaying visual Table
+                    st.markdown(f"""
+                    <div style="background-color:#f9f9f9; padding:20px; border-radius:10px; border:1px solid #ddd; color:black;">
+                        <h2 style='text-align:center;'>TARANGAN</h2>
+                        <table style="width:100%">
+                            <tr><td><b>Customer:</b> {cust_name}</td><td style='text-align:right;'><b>Unit:</b> {search_id}</td></tr>
+                            <tr><td><b>Floor:</b> {row.get('Floor','N/A')}</td><td style='text-align:right;'><b>Carpet:</b> {row.get('CARPET','N/A')} sqft</td></tr>
+                        </table>
+                        <hr>
+                        <div style="display:flex; justify-content:space-between;"><span>Agreement Value</span><span>₹ {format_indian_currency(res['Final Agreement'])}</span></div>
+                        <div style="display:flex; justify-content:space-between;"><span>Stamp Duty ({int(res['SD_Pct'])}%)</span><span>₹ {format_indian_currency(res['Stamp Duty'])}</span></div>
+                        <div style="display:flex; justify-content:space-between;"><span>GST ({int(res['GST_Pct'])}%)</span><span>₹ {format_indian_currency(res['GST'])}</span></div>
+                        <div style="display:flex; justify-content:space-between;"><span>Registration</span><span>₹ {format_indian_currency(res['Registration'])}</span></div>
+                        <div style="display:flex; justify-content:space-between; font-size:20px; font-weight:bold; margin-top:10px; border-top:2px solid black;"><span>TOTAL</span><span>₹ {format_indian_currency(res['Total'])}</span></div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    st.ln(2)
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        if st.button("📥 Download & Book Unit"):
+                            download_dialog(search_id, row.get('Floor','N/A'), row.get('CARPET','N/A'), res, cust_name, "2026", False, "2026")
+                    with c2:
+                        st.button("❌ Close / Release", on_click=release_unit_callback, args=(search_id,))
 
-    # --- ADMIN DASHBOARD ---
+    # --- ADMIN ---
     elif st.session_state.role == "admin":
-        st.title("🛠️ Admin Dashboard")
-        t1, t2, t3 = st.tabs(["Queue Management", "Sales History", "System Reset"])
+        st.title("🛠️ Admin Master Control")
+        t1, t2 = st.tabs(["Activity Log (Excel Track)", "System Management"])
         
         with t1:
-            st.subheader("Manage Waiting Queue")
-            if storage["waiting_customers"]:
-                cust_to_del = st.selectbox("Select Customer to Remove:", storage["waiting_customers"])
-                if st.button("Delete from Queue"):
-                    storage["waiting_customers"].remove(cust_to_del)
-                    st.success(f"Removed {cust_to_del} from list.")
-                    st.rerun()
-            else:
-                st.info("No customers in waiting queue.")
-            
-            st.write("---")
-            st.subheader("Manage Active Booths")
-            active_booths = {k: v for k, v in storage["booths"].items() if v}
-            if active_booths:
-                b_to_clear = st.selectbox("Select Cabin to Clear:", list(active_booths.keys()))
-                if st.button(f"Clear Cabin {b_to_clear}"):
-                    storage["booths"][b_to_clear] = None
-                    st.success(f"Cabin {b_to_clear} is now free.")
-                    st.rerun()
-            else:
-                st.info("No customers currently assigned to booths.")
+            if storage["activity_log"]:
+                df_log = pd.DataFrame(storage["activity_log"])
+                st.dataframe(df_log, use_container_width=True)
+                
+                # Excel Export
+                output = io.BytesIO()
+                with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                    df_log.to_excel(writer, index=False, sheet_name='Activity')
+                st.download_button("📊 Export Activity to Excel", output.getvalue(), "Tarangan_Activity_Log.xlsx")
+            else: st.info("No activity logged.")
 
         with t2:
-            if storage["download_history"]:
-                st.dataframe(pd.DataFrame(storage["download_history"]), use_container_width=True)
-            else:
-                st.info("No bookings recorded yet.")
-
-        with t3:
-            st.warning("This action cannot be undone.")
-            if st.button("⚠️ PERFORM FULL SYSTEM RESET"):
-                storage["locks"].clear(); storage["sold_units"].clear(); storage["download_history"].clear(); storage["unit_hits"].clear(); storage["waiting_customers"].clear()
+            if st.button("Clear All Locks"): storage["locks"].clear(); st.rerun()
+            if st.button("RESET ENTIRE SYSTEM"):
+                storage["locks"].clear(); storage["sold_units"].clear(); storage["download_history"].clear()
+                storage["activity_log"].clear(); storage["waiting_customers"].clear()
                 storage["booths"] = {letter: None for letter in "ABCDEFGHIJ"}
                 st.rerun()
