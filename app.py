@@ -402,17 +402,25 @@ else:
             else:
                 st.info("No activity logged.")
 
-        with t3:
-            st.subheader("Inventory Management")
-            if storage["sold_units"]:
-                unit_to_unblock = st.selectbox("Select Sold Unit to Restore:", sorted(list(storage["sold_units"])))
-                if st.button("🔓 Restore Unit to Inventory"):
-                    storage["sold_units"].remove(unit_to_unblock)
-                    log_activity(st.session_state.user_id, "UNBLOCK", f"Admin restored unit {unit_to_unblock}")
-                    st.success(f"Unit {unit_to_unblock} is now available for sale.")
+        with t3: # or t4 depending on your layout
+            st.subheader("System Reset")
+            reset_pass = st.text_input("Enter Reset Password:", type="password", key="final_reset_pw")
+            if st.button("⚠️ PERFORM FULL SYSTEM RESET"):
+                if reset_pass == "Atharva Joshi":
+                    # RE-INITIALIZE instead of just deleting
+                    storage["locks"] = {}
+                    storage["sold_units"] = set()
+                    storage["download_history"] = []
+                    storage["activity_log"] = [] # This prevents the KeyError
+                    storage["waiting_customers"] = []
+                    storage["unit_hits"] = {}
+                    storage["booths"] = {letter: None for letter in "ABCDEFGHIJ"}
+                    
+                    st.cache_resource.clear()
+                    st.success("System Reset Successfully!")
                     st.rerun()
-            else:
-                st.info("No units are currently marked as SOLD.")
+                else:
+                    st.error("Incorrect Password")
 
         with t4:
             st.subheader("System Reset")
