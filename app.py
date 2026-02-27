@@ -172,7 +172,6 @@ def create_pdf(unit_id, floor, carpet, costs, cust_name, date_str, use_parking):
         pdf.set_xy(150, footer_y + 19); pdf.set_font("Arial", '', 7); pdf.cell(45, 5, "Customer Signature", align='C')
 
     return pdf.output(dest='S').encode('latin-1')
-
 # --- UI SETUP ---
 st.set_page_config(page_title="Tarangan Dash", layout="wide")
 
@@ -183,7 +182,7 @@ def download_dialog(unit_id, floor, carpet, costs, cust_name, ist_now, cabin_key
     if st.button("Finalize & Email"):
         if not sales_name.strip(): st.error("Enter Name.")
         else:
-            pdf_bytes = create_pdf(unit_id, floor, carpet, costs, cust_name, "", False)
+            pdf_bytes = create_pdf(unit_id, floor, carpet, costs, cust_name)
             details = {"Timestamp": ist_now, "Sales Person": sales_name, "Unit No": unit_id, "Customer Name": cust_name, "Total Package": format_indian_currency(costs['Total'])}
             if send_email(RECEIVER_EMAIL, pdf_bytes, f"Tarangan_{unit_id}.pdf", details):
                 storage["download_history"].append(details); storage["sold_units"].add(unit_id)
@@ -202,20 +201,44 @@ if not st.session_state.authenticated:
 else:
     if st.sidebar.button("Logout"): st.session_state.authenticated = False; st.rerun()
 
-    # --- GRE ---
+    # --- GRE DASHBOARD ---
     if st.session_state.role == "GRE":
         st.title("📝 Stage 1: GRE Entry")
         if st.button("🔄 Refresh"): st.rerun()
-        new_name = st.text_input("Customer Name:")
-        if st.button("Add to Waiting List"):
-            if new_name: storage["waiting_customers"].append(new_name); st.success(f"Added {new_name}")
+        
+        tab1, tab2 = st.tabs(["Add Customer", "Waiting List Management"])
+        
+        with tab1:
+            inventory = load_data()
+            allotted = sorted(list(inventory['Customer Allotted'].dropna().unique()))
+            name_sel = st.selectbox("Search/Select Allotted Customer:", ["Select Name"] + allotted)
+            if st.button("Add Allotted to Waiting List"):
+                if name_sel != "Select Name":
+                    storage["waiting_customers"].append(name_sel); st.success(f"Added {name_sel}")
+            
+            st.write("---")
+            walkin_name = st.text_input("Walk-in Customer Name:")
+            if st.button("Add Walk-in to Waiting List"):
+                if walkin_name:
+                    storage["waiting_customers"].append(walkin_name); st.success(f"Added Walk-in: {walkin_name}")
+
+        with tab2:
+            st.subheader("Current Customers in Waiting Room")
+            if storage["waiting_customers"]:
+                for i, cust in enumerate(storage["waiting_customers"]):
+                    col_a, col_b = st.columns([3, 1])
+                    col_a.write(f"**{i+1}. {cust}**")
+                    if col_b.button("Remove", key=f"rem_{i}"):
+                        storage["waiting_customers"].pop(i); st.rerun()
+            else:
+                st.info("The waiting room is currently empty.")
 
     # --- MANAGER ---
     elif st.session_state.role == "Manager":
         st.title("👔 Stage 2: Manager Assignment")
         if st.button("🔄 Refresh"): st.rerun()
-        t1, t2 = st.tabs(["Assign Cabin", "Manage Active Cabins"])
-        with t1:
+        t_m1, t_m2 = st.tabs(["Assign Cabin", "Manage Active Cabins"])
+        with t_m1:
             col1, col2 = st.columns(2)
             if storage["waiting_customers"]:
                 sel_c = col1.selectbox("Select Customer:", storage["waiting_customers"])
@@ -223,7 +246,7 @@ else:
                 if col1.button("Confirm Assignment"):
                     storage["booths"][sel_b] = sel_c; storage["waiting_customers"].remove(sel_c); st.rerun()
             col2.table([{"Cabin": k, "Customer": v if v else "Free"} for k, v in storage["booths"].items()])
-        with t2:
+        with t_m2:
             occupied = {k: v for k, v in storage["booths"].items() if v}
             if occupied:
                 b_key = st.selectbox("Select Cabin to Manage:", list(occupied.keys()))
@@ -233,7 +256,6 @@ else:
                     reset_cabin_session(b_key); st.rerun()
                 if c2.button("Cancel & Remove Customer"):
                     reset_cabin_session(b_key); st.rerun()
-            else: st.info("No cabins occupied.")
 
     # --- SALES ---
     elif st.session_state.role == "Sales":
