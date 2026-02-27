@@ -156,7 +156,18 @@ def download_dialog(unit_id, floor, carpet, costs, cust_name, date_str, use_park
         if not sales_name.strip(): st.error("Name required.")
         else:
             pdf_bytes = create_pdf(unit_id, floor, carpet, costs, cust_name, date_str, use_parking)
-            storage["download_history"].append({"Timestamp": ist_log_time, "Sales": sales_name, "Unit": unit_id, "Customer": cust_name, "Total": costs['Total']})
+            storage["download_history"].append({
+                "Timestamp": ist_log_time, 
+                "Sales Person": sales_name, 
+                "Unit ID": unit_id, 
+                "Customer": cust_name, 
+                "Agreement Value": costs['Final Agreement'],
+                "GST": costs['GST'],
+                "Stamp Duty": costs['Stamp Duty'],
+                "Registration": costs['Registration'],
+                "Discount": costs['Combined_Discount'],
+                "Total Package": costs['Total']
+            })
             storage["sold_units"].add(unit_id)
             log_activity(st.session_state.user_id, "BOOKING", f"Unit {unit_id} booked for {cust_name}")
             st.success("Unit Booked!")
@@ -209,9 +220,7 @@ else:
     # --- SALES DASHBOARD ---
     elif st.session_state.role == "Sales":
         st.title("🏙️ Stage 3: Sales Portal")
-        
-        if st.button("🔄 Refresh Inventory"):
-            st.rerun()
+        if st.button("🔄 Refresh Inventory"): st.rerun()
 
         my_cabin = st.selectbox("Select Your Cabin:", list("ABCDEFGHIJ"))
         cust_name = storage["booths"].get(my_cabin)
@@ -222,56 +231,57 @@ else:
             st.success(f"Serving: {cust_name}")
             inventory = load_data()
             
-            # Hot Selling Logic (Exclude Sold)
+            # Hot Selling Logic
             available_hits = {u: c for u, c in storage["unit_hits"].items() if u not in storage["sold_units"]}
             hot_list = [u for u, c in sorted(available_hits.items(), key=lambda x: x[1], reverse=True)[:3]]
             
             if hot_list:
-                st.subheader(" Hottest Selling Units")
-                h_cols = st.columns(6) # Spreading small boxes across more columns to make them smaller
+                st.write("---")
+                st.subheader("🔥 Top 3 Trending Units")
+                h_cols = st.columns(6) # Keep them small
                 for i, uid in enumerate(hot_list):
                     with h_cols[i]:
                         st.markdown(f"""
-                        <div style="background-color: #000000; border-radius: 8px; padding: 6px 12px; text-align: center; color: white; border: 1px solid #333;">
-                            <p style="font-size: 11px; margin: 0; color: #888; text-transform: uppercase;">Trend #{i+1}</p>
-                            <p style="font-size: 16px; font-weight: bold; margin: 0;">Unit {uid}</p>
+                        <div style="
+                            background: linear-gradient(145deg, #1a1a1a, #000000);
+                            border: 1px solid #FFD700;
+                            border-radius: 12px;
+                            padding: 10px;
+                            text-align: center;
+                            box-shadow: 2px 2px 10px rgba(0,0,0,0.5);
+                            margin-bottom: 10px;">
+                            <p style="color: #FFD700; font-size: 10px; font-weight: bold; margin: 0; text-transform: uppercase;">RANK #{i+1} TRENDING</p>
+                            <p style="color: white; font-size: 18px; font-weight: 800; margin: 5px 0;">{uid}</p>
+                            <div style="background: #333; border-radius: 4px; display: inline-block; padding: 2px 8px;">
+                                <p style="color: #00FF00; font-size: 10px; margin: 0; font-weight: bold;">{available_hits[uid]} VIEWS</p>
+                            </div>
                         </div>
                         """, unsafe_allow_html=True)
 
             search_id = st.session_state.get("search_id_input", "").upper()
-            
-            # Inventory Grid
             with st.expander("📁 Inventory Selection Grid", expanded=(search_id == "")):
                 grid_cols = st.columns(6)
                 for idx, row in inventory.iterrows():
                     uid = str(row['ID']).upper()
-                    is_sold = uid in storage["sold_units"]
-                    is_busy = uid in storage["locks"] and storage["locks"][uid] != st.runtime.scriptrunner.get_script_run_ctx().session_id
-                    is_hot = uid in hot_list
-                    is_restricted = uid in ["A-705", "A-1205"]
+                    is_sold, is_busy = uid in storage["sold_units"], uid in storage["locks"] and storage["locks"][uid] != st.runtime.scriptrunner.get_script_run_ctx().session_id
+                    is_hot, is_restricted = uid in hot_list, uid in ["A-705", "A-1205"]
                     
                     with grid_cols[idx % 6]:
-                        if is_sold:
-                            lbl, clr = f"🟢 {uid}", True
-                        elif is_busy:
-                            lbl, clr = f"🔴 BUSY", True
-                        elif is_hot:
-                            lbl, clr = f"⚫ {uid}", False # Black for Hot
-                        else:
-                            lbl, clr = f"🟡 {uid}", False # Yellow default
+                        if is_sold: lbl, clr = f"🟢 {uid}", True
+                        elif is_busy: lbl, clr = f"🔴 BUSY", True
+                        elif is_hot: lbl, clr = f"⚫ {uid}", False
+                        else: lbl, clr = f"🟡 {uid}", False
                         
                         if st.button(lbl, key=f"btn_{uid}", use_container_width=True, disabled=clr or is_restricted):
                             st.session_state.search_id_input = uid
                             storage["unit_hits"][uid] = storage["unit_hits"].get(uid, 0) + 1
                             st.rerun()
 
-            # Monochrome Cost Sheet
             if search_id:
                 match = inventory[inventory['ID'].astype(str).str.upper() == search_id]
                 if not match.empty:
                     row = match.iloc[0]
                     storage["locks"][search_id] = st.runtime.scriptrunner.get_script_run_ctx().session_id
-                    ist_now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=5, minutes=30)))
                     
                     st.write("---")
                     c1, c2, c3 = st.columns(3)
@@ -284,10 +294,10 @@ else:
                     with c3: is_f = st.checkbox("Female")
                     
                     res = calculate_negotiation(clean_numeric(row.get('Agreement Value', 0)), d_val, p_val, use_p, is_f)
-
+                    
                     st.markdown(f"""
                         <div style="background:white; padding:30px; border:2px solid black; color:black; font-family:monospace;">
-                            <div style="text-align:right;">Date: {ist_now.strftime("%d/%m/%Y")}</div>
+                            <div style="text-align:right;">Date: {datetime.datetime.now().strftime("%d/%m/%Y")}</div>
                             <h2 style="text-align:center; border-bottom:2px solid black;">TARANGAN</h2>
                             <p><b>Customer:</b> {cust_name}</p>
                             <p><b>Unit:</b> {search_id} | <b>Floor:</b> {row.get('Floor','N/A')} | <b>Carpet:</b> {row.get('CARPET','N/A')} sqft</p>
@@ -301,31 +311,37 @@ else:
                         </div>
                     """, unsafe_allow_html=True)
                     
-                    st.write("")
                     col_d, col_r = st.columns(2)
-                    with col_d:
-                        if st.button("📥 Download PDF & Block"):
-                            download_dialog(search_id, row.get('Floor','N/A'), row.get('CARPET','N/A'), res, cust_name, ist_now.strftime("%d/%m/%Y"), use_p, ist_now.strftime("%d/%m/%Y %H:%M:%S"))
-                    with col_r:
-                        st.button("❌ Close / Release", on_click=release_unit_callback, args=(search_id,))
+                    with col_d: 
+                        if st.button("📥 Download PDF & Block"): 
+                            download_dialog(search_id, row.get('Floor','N/A'), row.get('CARPET','N/A'), res, cust_name, "2026", use_p, "2026")
+                    with col_r: st.button("❌ Close", on_click=release_unit_callback, args=(search_id,))
 
     # --- ADMIN ---
     elif st.session_state.role == "Tarangan":
         st.title("🛠️ Admin Master Dashboard")
-        t1, t2 = st.tabs(["Activity Tracker", "System Management"])
+        t1, t2, t3 = st.tabs(["Activity Tracker", "Booking Management", "System Reset"])
+        
         with t1:
             if storage["activity_log"]:
-                df_log = pd.DataFrame(storage["activity_log"])
-                st.dataframe(df_log, use_container_width=True)
-                output = io.BytesIO()
-                try:
-                    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                        df_log.to_excel(writer, index=False)
-                    st.download_button("📊 Export Log to Excel", output.getvalue(), "Tarangan_Activity.xlsx")
-                except:
-                    st.download_button("📊 Export as CSV", df_log.to_csv(index=False).encode('utf-8'), "Activity_Log.csv")
+                st.dataframe(pd.DataFrame(storage["activity_log"]), use_container_width=True)
+        
         with t2:
+            st.subheader("📋 Booked Flats Detailed Data")
+            if storage["download_history"]:
+                df_disp = pd.DataFrame(storage["download_history"])
+                st.dataframe(df_disp, use_container_width=True)
+                st.write("---")
+                unit_to_unblock = st.selectbox("Select Unit ID to restore:", list(storage["sold_units"]))
+                if st.button("Unblock & Restore Unit"):
+                    storage["sold_units"].remove(unit_to_unblock)
+                    storage["download_history"] = [item for item in storage["download_history"] if item.get("Unit ID") != unit_to_unblock]
+                    st.success(f"Unit {unit_to_unblock} restored.")
+                    st.rerun()
+
+        with t3:
             if st.button("⚠️ FULL SYSTEM RESET"):
-                storage["locks"].clear(); storage["sold_units"].clear(); storage["waiting_customers"].clear()
-                storage["booths"] = {letter: None for letter in "ABCDEFGHIJ"}; storage["unit_hits"].clear()
+                storage["locks"].clear(); storage["sold_units"].clear(); storage["download_history"].clear()
+                storage["activity_log"].clear(); storage["waiting_customers"].clear(); storage["unit_hits"].clear()
+                storage["booths"] = {letter: None for letter in "ABCDEFGHIJ"}
                 st.rerun()
