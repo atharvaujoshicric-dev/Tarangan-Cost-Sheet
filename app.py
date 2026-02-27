@@ -37,12 +37,11 @@ def format_indian_currency(number):
 
 def get_slot_info(token_str):
     try:
-        if not token_str or pd.isna(token_str): return "Walk-in", "Immediate"
         token_no = int(re.search(r'\d+', str(token_str)).group())
         if 21 <= token_no <= 45: return "Slot 1", "10:00 AM - 11:30 AM"
         elif 46 <= token_no <= 71: return "Slot 2", "1:00 PM - 2:30 PM"
         else: return "Slot 3", "5:00 PM - 6:00 PM"
-    except: return "Walk-in", "Immediate"
+    except: return "Unknown", "N/A"
 
 def calculate_negotiation(initial_agreement, pkg_discount=0, park_discount=0, use_parking=False, is_female=False):
     parking_price = (200000 - park_discount) if use_parking else 0
@@ -134,12 +133,7 @@ def create_pdf(unit_id, floor, carpet, costs, cust_name, date_str, use_parking):
         
         pdf.set_font("Arial", 'B', 11); pdf.cell(95, 10, "Description", border=1, align='C'); pdf.cell(95, 10, "Amount (Rs.)", border=1, ln=True, align='C')
         pdf.set_font("Arial", '', 11)
-        rows = [
-            ["Agreement Value", format_indian_currency(costs['Final Agreement'])],
-            [f"Stamp Duty ({int(costs['SD_Pct'])}%)", format_indian_currency(costs['Stamp Duty'])],
-            [f"GST ({int(costs['GST_Pct'])}%)", format_indian_currency(costs['GST'])],
-            ["Registration", format_indian_currency(costs['Registration'])]
-        ]
+        rows = [["Agreement Value", format_indian_currency(costs['Final Agreement'])], [f"Stamp Duty ({int(costs['SD_Pct'])}%)", format_indian_currency(costs['Stamp Duty'])], [f"GST ({int(costs['GST_Pct'])}%)", format_indian_currency(costs['GST'])], ["Registration", format_indian_currency(costs['Registration'])]]
         for r in rows:
             pdf.cell(95, 10, r[0], border=1, align='C'); pdf.cell(95, 10, r[1], border=1, ln=True, align='C')
         
@@ -179,8 +173,8 @@ def download_dialog(unit_id, floor, carpet, costs, cust_name, date_str, use_park
             pdf_bytes = create_pdf(unit_id, floor, carpet, costs, cust_name, date_str, use_parking)
             details = {"Timestamp": date_str, "Sales Person": sales_name, "Unit No": unit_id, "Customer Name": cust_name, "Total Package": format_indian_currency(costs['Total'])}
             if send_email(RECEIVER_EMAIL, pdf_bytes, f"Tarangan_{unit_id}.pdf", details):
-                storage["sold_units"].add(unit_id)
-                storage["download_history"].append(details)
+                storage["download_history"].append(details); storage["sold_units"].add(unit_id)
+                storage["visited_customers"].add(cust_name)
                 reset_cabin_session(cabin_key); st.session_state.search_id_input = ""
                 st.success("Sent!"); st.download_button("Download PDF", pdf_bytes, f"Tarangan_{unit_id}.pdf")
 
@@ -203,27 +197,32 @@ else:
         inventory = load_data()
         allotted = sorted(list(inventory['Customer Allotted'].dropna().unique()))
         
-        st.subheader("Add Allotted Customer")
-        name_sel = st.selectbox("Allotted Name:", ["Select"] + allotted)
-        if name_sel != "Select":
-            row_data = inventory[inventory['Customer Allotted'] == name_sel]
-            # Handle column name variations
-            tok_col = 'TOKEN NO' if 'TOKEN NO' in inventory.columns else 'Token No'
-            tok_val = row_data[tok_col].values[0] if tok_col in row_data.columns else None
-            slot, time = get_slot_info(tok_val); st.info(f"Slot: {slot} | Timing: {time}")
-            
-        if st.button("Add to Queue"):
-            if name_sel != "Select": 
-                storage["waiting_customers"].append(name_sel); storage["visited_customers"].add(name_sel); st.success(f"{name_sel} added.")
+        tab1, tab2 = st.tabs(["Add Allotted", "Add Walk-in"])
         
-        st.write("---")
-        st.subheader("Add Walk-in Customer")
-        walkin_name = st.text_input("Walk-in Name:")
-        if st.button("Add Walk-in"):
-            if walkin_name:
-                storage["waiting_customers"].append(f"WI: {walkin_name}")
-                storage["visited_customers"].add(f"WI: {walkin_name}")
-                st.success(f"Walk-in {walkin_name} added to queue.")
+        with tab1:
+            name_sel = st.selectbox("Select Allotted Customer:", ["Select"] + allotted)
+            if name_sel != "Select":
+                # FIXED KEYERROR: Only look for token if it's in the list
+                match = inventory[inventory['Customer Allotted'] == name_sel]
+                if not match.empty:
+                    tok_val = match['TOKEN NO'].values[0]
+                    slot, time = get_slot_info(tok_val); st.info(f"Slot: {slot} | Timing: {time}")
+            
+            if st.button("Add Allotted to Queue"):
+                if name_sel != "Select":
+                    if name_sel not in storage["waiting_customers"]:
+                        storage["waiting_customers"].append(name_sel)
+                        storage["visited_customers"].add(name_sel); st.success(f"{name_sel} added.")
+                    else: st.warning("Customer already in queue.")
+
+        with tab2:
+            walkin_name = st.text_input("Enter Walk-in Name:")
+            if st.button("Add Walk-in to Queue"):
+                if walkin_name:
+                    if walkin_name not in storage["waiting_customers"]:
+                        storage["waiting_customers"].append(walkin_name)
+                        storage["visited_customers"].add(walkin_name); st.success(f"Walk-in {walkin_name} added.")
+                    else: st.warning("Name already in queue.")
 
     # --- MANAGER DASHBOARD ---
     elif st.session_state.role == "Manager":
@@ -239,15 +238,13 @@ else:
                     if st.button("Assign Now"):
                         storage["booths"][b_sel] = c_sel; storage["waiting_customers"].remove(c_sel); st.rerun()
         with col2:
-            st.subheader("Booth Status")
+            st.subheader("Current Booth Status")
             for b, c in storage["booths"].items():
                 if c:
                     st.write(f"**Cabin {b}:** {c}")
                     c1, c2 = st.columns(2)
-                    if c1.button(f"Unassign {b}", key=f"un_{b}"): 
-                        storage["waiting_customers"].append(c); storage["booths"][b] = None; st.rerun()
-                    if c2.button(f"Delete Session {b}", key=f"del_{b}"): 
-                        storage["booths"][b] = None; st.rerun()
+                    if c1.button(f"Unassign {b}", key=f"un_{b}"): storage["waiting_customers"].append(c); storage["booths"][b] = None; st.rerun()
+                    if c2.button(f"Delete {b}", key=f"del_{b}"): storage["booths"][b] = None; st.rerun()
                 else: st.write(f"Cabin {b}: 🟢 Free")
 
     # --- SALES DASHBOARD ---
@@ -262,18 +259,17 @@ else:
             assigned_id = str(token_row['ID'].values[0]).upper() if not token_row.empty else "NONE"
             st.info(f"Customer: {cust_name}")
             
+            # Unit Request logic
             rem = 2 - storage["unblock_counts"][my_cabin]
             if rem > 0:
                 req = st.text_input("Request Unit Unblock:").upper()
                 if st.button(f"Send Request ({rem} left)"):
-                    if req: storage["pending_requests"][my_cabin] = req; st.toast("Request Sent.")
+                    if req: storage["pending_requests"][my_cabin] = req; st.toast("Sent.")
 
-            col_opt1, col_opt2 = st.columns(2)
-            with col_opt2:
-                reason = st.text_input("Opt-Out Reason:")
-                if st.button("Mark Opted Out"):
-                    storage["opted_out"].append({"Customer": cust_name, "Reason": reason, "Date": datetime.datetime.now().strftime("%d/%m/%Y")})
-                    reset_cabin_session(my_cabin); st.rerun()
+            reason = st.text_input("Opt-Out Reason:")
+            if st.button("Mark as Opted Out"):
+                storage["opted_out"].append({"Customer": cust_name, "Reason": reason, "Date": datetime.datetime.now().strftime("%d/%m/%Y")})
+                reset_cabin_session(my_cabin); st.rerun()
 
             if "search_id_input" not in st.session_state: st.session_state.search_id_input = ""
             search_id = st.session_state.search_id_input.upper()
@@ -291,49 +287,53 @@ else:
             if search_id:
                 match = inventory[inventory['ID'].astype(str).str.upper() == search_id]
                 if not match.empty:
-                    row = match.iloc[0]; use_p = st.checkbox("Include Parking")
+                    row = match.iloc[0]
+                    use_p = st.checkbox("Include Parking")
                     res = calculate_negotiation(clean_numeric(row.get('Agreement Value', 0)), 0, 0, use_p, False)
-                    st.markdown(f"<div style='border:1px solid black; padding:15px;'><h3>Unit {search_id}</h3><p>Parking: {res['Parking Text']}</p><h4>Total: {format_indian_currency(res['Total'])}</h4></div>", unsafe_allow_html=True)
-                    if st.button("Finalize"):
+                    st.markdown(f"<div style='border:1px solid black; padding:15px;'><h3>Unit {search_id}</h3><h4>Total: {format_indian_currency(res['Total'])}</h4></div>", unsafe_allow_html=True)
+                    if st.button("Finalize & Download"):
                         download_dialog(search_id, row.get('Floor','N/A'), row.get('CARPET','N/A'), res, cust_name, datetime.datetime.now().strftime("%d/%m/%Y"), use_p, my_cabin)
 
     # --- ADMIN DASHBOARD ---
     elif st.session_state.role == "Tarangan":
-        st.title("🛠️ Admin Dashboard")
+        st.title("🛠️ Admin Master")
         if st.button("🔄 Global Refresh"): st.rerun()
-        t1, t2, t3, t4, t5, t6 = st.tabs(["Requests", "Sales Report", "Opted Out", "Release Inventory", "Non-Visited", "Reset"])
+        t1, t2, t3, t4, t5, t6 = st.tabs(["Unit Requests", "Sales Report", "Opted Out", "Release Inventory", "Non-Visited", "Reset"])
         
         with t1:
+            st.subheader("Pending Unblock Requests")
             for c, u in list(storage["pending_requests"].items()):
-                if st.button(f"Approve {u} for Cabin {c}"):
+                col_r1, col_r2 = st.columns([3, 1])
+                col_r1.write(f"Cabin {c} -> Unit {u}")
+                if col_r2.button("Approve", key=f"app_{c}"):
                     storage["approved_units"][c].append(u); storage["unblock_counts"][c]+=1; del storage["pending_requests"][c]; st.rerun()
-            st.write("---")
+            st.subheader("Revoke Approvals")
             for c, units in storage["approved_units"].items():
                 for u in units:
-                    if st.button(f"Revoke {u} from {c}"): storage["approved_units"][c].remove(u); st.rerun()
-        with t2:
-            if storage["download_history"]: st.dataframe(pd.DataFrame(storage["download_history"]))
-        with t3:
-            if storage["opted_out"]: st.dataframe(pd.DataFrame(storage["opted_out"]))
+                    if st.button(f"Revoke {u} ({c})", key=f"rev_{c}_{u}"):
+                        storage["approved_units"][c].remove(u); storage["unblock_counts"][c]=max(0, storage["unblock_counts"][c]-1); st.rerun()
+        with t2: st.dataframe(pd.DataFrame(storage["download_history"]))
+        with t3: st.dataframe(pd.DataFrame(storage["opted_out"]))
         with t4:
             u_rel = st.selectbox("Release Unit:", sorted(list(storage["sold_units"])))
-            if st.button("Confirm Release"): storage["sold_units"].remove(u_rel); st.rerun()
+            if st.button("Confirm Release"):
+                storage["sold_units"].remove(u_rel)
+                storage["download_history"] = [d for d in storage["download_history"] if d.get("Unit No") != u_rel]; st.rerun()
         with t5:
-            inventory = load_data(); tok_col = 'TOKEN NO' if 'TOKEN NO' in inventory.columns else 'Token No'
-            allotted_list = inventory.dropna(subset=['Customer Allotted'])
+            inventory = load_data(); allotted_list = inventory.dropna(subset=['Customer Allotted'])
             for s in ["Slot 1", "Slot 2", "Slot 3"]:
                 st.write(f"### {s}"); nv = []
                 for _, row in allotted_list.iterrows():
-                    slot, _ = get_slot_info(row[tok_col])
+                    slot, _ = get_slot_info(row['TOKEN NO'])
                     if slot == s and row['Customer Allotted'] not in storage["visited_customers"]:
-                        nv.append({"Customer": row['Customer Allotted'], "Token": row[tok_col]})
+                        nv.append({"Customer": row['Customer Allotted'], "Token": row['TOKEN NO']})
                 st.table(nv if nv else [{"Customer": "All Visited", "Token": "-"}])
         with t6:
             if st.text_input("Master Pass", type="password") == "Atharva Joshi":
-                if st.button("🚨 WIPE ALL"): 
-                    for k in storage: 
-                        if isinstance(storage[k], list): storage[k].clear()
-                        elif isinstance(storage[k], set): storage[k].clear()
-                        elif isinstance(storage[k], dict) and k == "booths":
-                            for b in storage[k]: storage[k][b] = None
+                if st.button("🚨 WIPE SYSTEM"):
+                    storage["sold_units"].clear(); storage["download_history"].clear(); storage["opted_out"].clear()
+                    storage["visited_customers"].clear(); storage["pending_requests"].clear()
+                    for b in storage["booths"]: storage["booths"][b] = None
+                    for b in storage["approved_units"]: storage["approved_units"][b] = []
+                    for b in storage["unblock_counts"]: storage["unblock_counts"][b] = 0
                     st.rerun()
