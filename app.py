@@ -255,21 +255,29 @@ else:
                 else:
                     st.write(f"**Cabin {b}:** 🟢 Free")
     # --- SALES DASHBOARD ---
+    # --- SALES DASHBOARD ---
     elif st.session_state.role == "Sales":
-        # INITIALIZE VARIABLES TO PREVENT NAMEERROR
+        # 1. INITIALIZE ALL VARIABLES TO PREVENT NAMEERROR
         if "search_id_input" not in st.session_state:
             st.session_state.search_id_input = ""
         
-        search_id = st.session_state.search_id_input  # Define search_id here
-        ist_now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=5, minutes=30)))
+        assigned_id = st.session_state.search_id_input # Current selected unit
+        my_cabin = st.selectbox("Select Your Cabin:", list("ABCDEFGHIJ"), key="sales_cabin_sel")
+        cust_name = storage["booths"].get(my_cabin) # Get customer from Manager's assignment
         
         st.title("🏙️ Stage 3: Sales Portal")
-        if st.button("🔄 Refresh Data"): st.rerun()
-        
-        my_cabin = st.selectbox("Select Cabin:", list("ABCDEFGHIJ"))
-        cust_name = storage["booths"].get(my_cabin)
-        
-        if cust_name:
+
+        if not cust_name:
+            st.warning(f"Cabin {my_cabin} is currently empty. Please wait for the Manager to assign a customer.")
+        else:
+            # 2. SAFE DISPLAY (Only show assigned_id if it exists)
+            status_msg = f"Serving: **{cust_name}**"
+            if assigned_id:
+                status_msg += f" | Currently Discussing: **{assigned_id}**"
+            
+            st.success(status_msg)
+
+            # --- Inventory Selection Grid ---
             inventory = load_data()
             # ... [Rest of your inventory grid logic] ...
 
