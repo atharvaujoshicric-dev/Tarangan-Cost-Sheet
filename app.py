@@ -240,7 +240,7 @@ else:
             hot_list = [u for u, c in sorted(avail_hits.items(), key=lambda x: x[1], reverse=True)[:3]]
             
             if hot_list:
-                st.subheader("🔥 Trending Units")
+                st.subheader("🔥 Mostwanted Untis")
                 h_cols = st.columns(6)
                 for i, uid in enumerate(hot_list):
                     h_cols[i].markdown(f'<div style="background:#121212;border:2px solid #D4AF37;border-radius:12px;padding:10px;text-align:center;color:white;"><p style="color:#D4AF37;font-size:9px;font-weight:bold;margin:0;">RANK #{i+1}</p><p style="font-size:18px;font-weight:900;margin:3px 0;">{uid}</p></div>', unsafe_allow_html=True)
