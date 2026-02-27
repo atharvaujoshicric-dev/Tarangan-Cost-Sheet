@@ -151,7 +151,6 @@ def create_pdf(unit_id, floor, carpet, costs, cust_name, date_str, use_parking):
         pdf.set_xy(150, footer_y + 19); pdf.set_font("Arial", '', 7); pdf.cell(45, 5, "Customer Signature", align='C')
 
     return pdf.output(dest='S').encode('latin-1')
-
 # --- UI SETUP ---
 st.set_page_config(page_title="Tarangan Dashboard", layout="wide")
 
@@ -190,16 +189,17 @@ if not st.session_state.authenticated:
                 st.rerun()
             else: st.error("Invalid credentials.")
 else:
-    # Sidebar logout
     if st.sidebar.button("Logout"):
         st.session_state.authenticated = False
         st.rerun()
 
-    # --- ROUTING BY ROLE ---
     role = st.session_state.role
 
+    # --- GRE DASHBOARD ---
     if role == "GRE":
         st.title("📝 Stage 1: GRE Entry")
+        if st.button("🔄 Refresh List"): st.rerun()
+        
         inventory = load_data()
         allotted = sorted(list(inventory['Customer Allotted'].dropna().unique()))
         name_sel = st.selectbox("Select Allotted Customer:", ["Select Name"] + allotted)
@@ -210,9 +210,11 @@ else:
         if st.button("Add Walk-in"):
             if new_name: storage["waiting_customers"].append(new_name); st.success(f"Added {new_name}")
 
+    # --- MANAGER DASHBOARD ---
     elif role == "Manager":
         st.title("👔 Stage 2: Manager Assignment")
-        if st.button("🔄 Refresh"): st.rerun()
+        if st.button("🔄 Refresh Data"): st.rerun()
+        
         col1, col2 = st.columns(2)
         if storage["waiting_customers"]:
             sel_c = col1.selectbox("Customer:", storage["waiting_customers"])
@@ -222,8 +224,11 @@ else:
                 storage["waiting_customers"].remove(sel_c); st.rerun()
         col2.table([{"Cabin": k, "Customer": v if v else "Free"} for k, v in storage["booths"].items()])
 
+    # --- SALES DASHBOARD ---
     elif role == "Sales":
         st.title("🏙️ Stage 3: Sales Portal")
+        if st.button("🔄 Refresh Inventory"): st.rerun()
+        
         my_cabin = st.selectbox("Select Cabin:", list("ABCDEFGHIJ"))
         cust_name = storage["booths"].get(my_cabin)
         if cust_name:
@@ -264,13 +269,16 @@ else:
                     if st.button("📥 Download PDF"): download_dialog(search_id, row.get('Floor','N/A'), "N/A", res, cust_name, "2026", False, "2026", my_cabin)
                     st.button("❌ Close", on_click=lambda: st.session_state.update({"search_id_input": ""}))
 
+    # --- ADMIN DASHBOARD ---
     elif role == "Tarangan":
         st.title("🛠️ Admin Dashboard")
+        if st.button("🔄 Global System Refresh"): st.rerun()
+        
         t1, t2, t3 = st.tabs(["Requests", "Sales Record", "Reset"])
         with t1:
             for cabin, unit in list(storage["pending_requests"].items()):
                 st.write(f"Cabin **{cabin}** requests unblock for **{unit}**")
-                if st.button(f"Approve {unit}"):
+                if st.button(f"Approve {unit} for Cabin {cabin}"):
                     storage["approved_units"][cabin].append(unit)
                     storage["unblock_counts"][cabin] += 1
                     del storage["pending_requests"][cabin]; st.rerun()
