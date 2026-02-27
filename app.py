@@ -165,11 +165,8 @@ def download_dialog(unit_id, floor, carpet, costs, cust_name, date_str, use_park
             })
             storage["sold_units"].add(unit_id)
             log_activity(st.session_state.user_id, "BOOKING", f"Unit {unit_id} booked for {cust_name}")
-            
-            # Reset UI
             st.session_state.search_id_input = ""
             if unit_id in storage["locks"]: del storage["locks"][unit_id]
-            
             st.success("Unit Booked! Basic UI restored.")
             st.download_button("📥 Download PDF", pdf_bytes, f"Tarangan_{unit_id}.pdf", "application/pdf")
 
@@ -218,26 +215,14 @@ else:
     # --- MANAGER ---
     elif st.session_state.role == "Manager":
         st.title("👔 Stage 2: Manager Assignment")
-        t1, t2 = st.tabs(["Assign", "Reassign"])
-        with t1:
-            col1, col2 = st.columns(2)
-            if storage["waiting_customers"]:
-                sel_c = col1.selectbox("Select Customer:", storage["waiting_customers"])
-                sel_b = col1.selectbox("Cabin:", [b for b, v in storage["booths"].items() if v is None])
-                if col1.button("Assign"):
-                    storage["booths"][sel_b] = sel_c
-                    storage["waiting_customers"].remove(sel_c); st.rerun()
-            col2.table([{"Cabin": k, "Customer": v if v else "Free"} for k, v in storage["booths"].items()])
-        with t2:
-            occ = {k: v for k, v in storage["booths"].items() if v}
-            if occ:
-                b_key = st.selectbox("Occupied Cabin:", list(occ.keys()))
-                c1, c2 = st.columns(2)
-                if c1.button("Move to Waiting"):
-                    storage["waiting_customers"].append(occ[b_key])
-                    storage["booths"][b_key] = None; st.rerun()
-                if c2.button("Remove Completely"):
-                    storage["booths"][b_key] = None; st.rerun()
+        col1, col2 = st.columns(2)
+        if storage["waiting_customers"]:
+            sel_c = col1.selectbox("Select Customer:", storage["waiting_customers"])
+            sel_b = col1.selectbox("Cabin:", [b for b, v in storage["booths"].items() if v is None])
+            if col1.button("Assign"):
+                storage["booths"][sel_b] = sel_c
+                storage["waiting_customers"].remove(sel_c); st.rerun()
+        col2.table([{"Cabin": k, "Customer": v if v else "Free"} for k, v in storage["booths"].items()])
 
     # --- SALES ---
     elif st.session_state.role == "Sales":
@@ -267,13 +252,11 @@ else:
                     uid = str(row['ID']).upper()
                     is_sold, is_busy = uid in storage["sold_units"], uid in storage["locks"] and storage["locks"][uid] != st.runtime.scriptrunner.get_script_run_ctx().session_id
                     is_hot, is_res = uid in hot_list, uid in ["A-705", "A-1205"]
-                    
                     with grid_cols[idx % 6]:
                         if is_sold: lbl, clr = f"🟢 {uid}", True
                         elif is_busy: lbl, clr = f"🔴 BUSY", True
                         elif is_hot: lbl, clr = f"⚫ {uid}", False
                         else: lbl, clr = f"🟡 {uid}", False
-                        
                         if st.button(lbl, key=f"btn_{uid}", use_container_width=True, disabled=clr or is_res):
                             st.session_state.search_id_input = uid
                             storage["unit_hits"][uid] = storage["unit_hits"].get(uid, 0) + 1; st.rerun()
@@ -296,14 +279,15 @@ else:
                     with c3: is_f = st.checkbox("Female")
                     
                     res = calculate_negotiation(clean_numeric(row.get('Agreement Value', 0)), d_val, p_val, use_p, is_f)
+                    park_loc_label = "Parking Under Building" if use_p else "Parking Outside Building"
 
-                    # --- RESTORED ORIGINAL MONOCHROME COST SHEET ---
                     st.markdown(f"""
                         <div style="background:white; padding:30px; border:2px solid black; color:black; font-family:monospace;">
                             <div style="text-align:right;">Date: {ist_now.strftime("%d/%m/%Y")}</div>
                             <h2 style="text-align:center; border-bottom:2px solid black;">TARANGAN</h2>
                             <p><b>Customer:</b> {cust_name}</p>
                             <p><b>Unit:</b> {search_id} | <b>Floor:</b> {row.get('Floor','N/A')} | <b>Carpet:</b> {row.get('CARPET','N/A')} sqft</p>
+                            <p><b>Parking Status:</b> {park_loc_label}</p>
                             <div style="display:flex; justify-content:space-between; border-bottom:1px dotted #888; padding:5px 0;"><span>Agreement</span><span>Rs. {format_indian_currency(res['Final Agreement'])}</span></div>
                             <div style="display:flex; justify-content:space-between; border-bottom:1px dotted #888; padding:5px 0;"><span>Stamp Duty ({int(res['SD_Pct'])}%)</span><span>Rs. {format_indian_currency(res['Stamp Duty'])}</span></div>
                             <div style="display:flex; justify-content:space-between; border-bottom:1px dotted #888; padding:5px 0;"><span>GST ({int(res['GST_Pct'])}%)</span><span>Rs. {format_indian_currency(res['GST'])}</span></div>
