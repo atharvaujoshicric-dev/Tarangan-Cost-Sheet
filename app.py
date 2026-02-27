@@ -60,9 +60,14 @@ def calculate_negotiation(initial_agreement, pkg_discount=0, park_discount=0, us
     sd_pct = 0.06 if is_female else 0.07
     gst_pct = 0.05 if final_agreement > 4500000 else 0.01
     REGISTRATION = 30000 
-    sd_amt = final_agreement * sd_pct
+    
+    # Calculation with Nearest Hundred Rounding for Stamp Duty
+    raw_sd = final_agreement * sd_pct
+    sd_amt = round(raw_sd, -2) # Round to nearest 100
+    
     gst_amt = final_agreement * gst_pct
     total_package = final_agreement + sd_amt + gst_amt + REGISTRATION
+    
     return {
         "Final Agreement": final_agreement, "Stamp Duty": sd_amt, "SD_Pct": sd_pct * 100,
         "GST": gst_amt, "GST_Pct": gst_pct * 100, "Registration": REGISTRATION,
@@ -190,7 +195,7 @@ if not st.session_state.authenticated:
 else:
     if st.sidebar.button("Logout"): st.session_state.authenticated = False; st.rerun()
 
-    # --- GRE ---
+    # --- STAGE 1: GRE ---
     if st.session_state.role == "GRE":
         st.title("📝 Stage 1: GRE Entry")
         tab_add, tab_edit = st.tabs(["Add Customer", "Manage Waiting List"])
@@ -212,7 +217,7 @@ else:
                 if c2.button("Delete"):
                     storage["waiting_customers"].remove(sel); st.rerun()
 
-    # --- MANAGER ---
+    # --- STAGE 2: MANAGER ---
     elif st.session_state.role == "Manager":
         st.title("👔 Stage 2: Manager Assignment")
         col1, col2 = st.columns(2)
@@ -224,7 +229,7 @@ else:
                 storage["waiting_customers"].remove(sel_c); st.rerun()
         col2.table([{"Cabin": k, "Customer": v if v else "Free"} for k, v in storage["booths"].items()])
 
-    # --- SALES ---
+    # --- STAGE 3: SALES ---
     elif st.session_state.role == "Sales":
         st.title("🏙️ Stage 3: Sales Portal")
         if st.button("🔄 Refresh Data"): st.rerun()
@@ -240,7 +245,7 @@ else:
             hot_list = [u for u, c in sorted(avail_hits.items(), key=lambda x: x[1], reverse=True)[:3]]
             
             if hot_list:
-                st.subheader("🔥 Selling Now..!")
+                st.subheader("🔥 Trending Units")
                 h_cols = st.columns(6)
                 for i, uid in enumerate(hot_list):
                     h_cols[i].markdown(f'<div style="background:#121212;border:2px solid #D4AF37;border-radius:12px;padding:10px;text-align:center;color:white;"><p style="color:#D4AF37;font-size:9px;font-weight:bold;margin:0;">RANK #{i+1}</p><p style="font-size:18px;font-weight:900;margin:3px 0;">{uid}</p></div>', unsafe_allow_html=True)
@@ -279,7 +284,7 @@ else:
                     with c3: is_f = st.checkbox("Female")
                     
                     res = calculate_negotiation(clean_numeric(row.get('Agreement Value', 0)), d_val, p_val, use_p, is_f)
-                    park_loc_label = "Parking Under Building" if use_p else "1 Car Parking"
+                    park_loc_label = "Parking Under Building" if use_p else "Parking Outside Building"
 
                     st.markdown(f"""
                         <div style="background:white; padding:30px; border:2px solid black; color:black; font-family:monospace;">
@@ -295,6 +300,7 @@ else:
                             <div style="display:flex; justify-content:space-between; font-weight:bold; font-size:1.2em; border-top:2px solid black; margin-top:10px; padding:10px 0;"><span>TOTAL</span><span>Rs. {format_indian_currency(res['Total'])}</span></div>
                             <div style="font-style:italic; margin-top:5px;">Rupees {num2words(res['Total'], lang='en_IN').title().replace(",","")} Only</div>
                             <div style="color:red; font-weight:bold; margin-top:10px;">Total Discount Availed: Rs. {format_indian_currency(res['Combined_Discount'])}</div>
+                            <div style="font-size: 8px; margin-top: 5px;">*Stamp Duty rounded to nearest hundred.</div>
                         </div>
                     """, unsafe_allow_html=True)
                     
