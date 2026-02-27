@@ -138,61 +138,75 @@ else:
         if st.button("🚪 Logout"): st.session_state.authenticated = False; st.rerun()
 
     # --- GRE DASHBOARD ---
-    if st.session_state.role == "GRE":
+    elif st.session_state.role == "GRE":
         st.title("📝 Stage 1: GRE Entry")
         
-        # 1. Entry Form
-        with st.form("gre_add", clear_on_submit=True):
-            st.subheader("Add Walk-in Customer")
-            name = st.text_input("Customer Name").strip()
-            submit = st.form_submit_button("Submit")
-            
-            if submit:
-                if not name:
-                    st.error("Please enter a name.")
-                else:
-                    # Duplicate Checks
-                    in_waiting = name.upper() in [c.upper() for c in storage["waiting_customers"]]
-                    in_cabins = name.upper() in [str(v).upper() for v in storage["booths"].values() if v is not None]
-
-                    if in_waiting or in_cabins:
-                        st.warning(f"DUPLICATE: '{name}' is already in the system.")
-                    else:
-                        storage["waiting_customers"].append(name)
-                        st.success(f"Added: {name}")
-                        st.rerun()
-
-        st.divider() # This separates the form from the list
-
-        # 2. THE CUSTOMER LIST (Look here!)
-        st.subheader("📋 Current Waiting List")
+        # Load the latest inventory/customer data from Google Sheets
+        df_master = load_data()
         
-        if not storage["waiting_customers"]:
-            st.info("The waiting list is currently empty.")
-        else:
-            # We use a loop to show every name in the storage
-            for i, cust in enumerate(storage["waiting_customers"]):
-                col_name, col_btn = st.columns([4, 1])
-                with col_name:
-                    st.write(f"{i+1}. **{cust}**")
-                with col_btn:
-                    if st.button("🗑️ Remove", key=f"remove_{i}"):
-                        storage["waiting_customers"].remove(cust)
-                        st.rerun()
+        col_left, col_right = st.columns(2)
 
-        # 2. View/Manage Waiting List
-        st.subheader("📋 Current Waiting List")
+        # --- LEFT SIDE: GOOGLE SHEET CUSTOMER FETCH ---
+        with col_left:
+            st.subheader("📋 Search Existing Database")
+            # Assuming your Google Sheet has a column named 'Customer Name' or similar
+            # If not, adjust 'Customer Name' to the correct column header from your sheet
+            if 'Customer Name' in df_master.columns:
+                db_customers = sorted(df_master['Customer Name'].dropna().unique().tolist())
+                
+                selected_cust = st.selectbox("Select Customer from List:", ["-- Search & Select --"] + db_customers)
+                
+                if st.button("Add Selected to Waiting"):
+                    if selected_cust != "-- Search & Select --":
+                        name = selected_cust.strip()
+                        
+                        # Duplicate Checks
+                        in_waiting = name.upper() in [c.upper() for c in storage["waiting_customers"]]
+                        in_cabins = name.upper() in [str(v).upper() for v in storage["booths"].values() if v is not None]
+
+                        if in_waiting or in_cabins:
+                            st.warning(f"DUPLICATE: '{name}' is already in the system.")
+                        else:
+                            storage["waiting_customers"].append(name)
+                            st.success(f"Added {name} from Database")
+                            st.rerun()
+            else:
+                st.info("No 'Customer Name' column found in Google Sheet.")
+
+        # --- RIGHT SIDE: NEW WALK-IN ENTRY ---
+        with col_right:
+            st.subheader("🚶 New Walk-in")
+            with st.form("walkin_form", clear_on_submit=True):
+                new_name = st.text_input("Enter Walk-in Name:").strip()
+                if st.form_submit_button("Add Walk-in"):
+                    if new_name:
+                        # Duplicate Checks
+                        in_waiting = new_name.upper() in [c.upper() for c in storage["waiting_customers"]]
+                        in_cabins = new_name.upper() in [str(v).upper() for v in storage["booths"].values() if v is not None]
+
+                        if in_waiting or in_cabins:
+                            st.warning(f"DUPLICATE: '{new_name}' is already in the system.")
+                        else:
+                            storage["waiting_customers"].append(new_name)
+                            st.success(f"Added Walk-in: {new_name}")
+                            st.rerun()
+                    else:
+                        st.error("Please enter a name.")
+
+        st.divider()
+
+        # --- BOTTOM: THE LIVE WAITING LIST ---
+        st.subheader("📊 Live Waiting List (To be assigned by Manager)")
         if storage["waiting_customers"]:
-            # Display as a list with a delete option
+            # Displaying in a cleaner table format
             for i, cust in enumerate(storage["waiting_customers"]):
-                col1, col2 = st.columns([4, 1])
-                col1.write(f"{i+1}. **{cust}**")
-                if col2.button("🗑️ Remove", key=f"del_{i}"):
+                c1, c2 = st.columns([5, 1])
+                c1.info(f"**{i+1}. {cust}**")
+                if c2.button("🗑️ Remove", key=f"gre_rm_{i}"):
                     storage["waiting_customers"].remove(cust)
                     st.rerun()
         else:
-            st.info("No customers currently waiting.")
-
+            st.write("List is currently empty.")
     # --- MANAGER DASHBOARD ---
     elif st.session_state.role == "Manager":
         st.title("👔 Manager Assignment")
