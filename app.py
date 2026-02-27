@@ -236,10 +236,14 @@ else:
                     st.write(f"**Cabin {b}:** 🟢 Free")
     # --- SALES DASHBOARD ---
     elif st.session_state.role == "Sales":
-        # 1. DEFINE THIS AT THE TOP TO PREVENT NAMEERROR
+        # INITIALIZE VARIABLES TO PREVENT NAMEERROR
+        if "search_id_input" not in st.session_state:
+            st.session_state.search_id_input = ""
+        
+        search_id = st.session_state.search_id_input  # Define search_id here
         ist_now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=5, minutes=30)))
         
-        st.title("🏙️ Sales Portal")
+        st.title("🏙️ Stage 3: Sales Portal")
         if st.button("🔄 Refresh Data"): st.rerun()
         
         my_cabin = st.selectbox("Select Cabin:", list("ABCDEFGHIJ"))
@@ -342,102 +346,87 @@ else:
                     st.session_state.search_id_input = ""; st.rerun()
 
     # --- ADMIN DASHBOARD ---
-    # --- ADMIN DASHBOARD ---
     # --- ADMIN ---
     elif st.session_state.role == "Tarangan":
-        st.title("🛠️ Admin Dashboard")
+        st.title("🛠️ Admin Master Control")
         if st.sidebar.button("🔄 Global Refresh"): st.rerun()
         
-        # Tabs for better organization
-        t1, t2, t3, t4 = st.tabs(["📊 Sales Report", "🕵️ Activity Tracker", "📦 Inventory Management", "🚨 System Reset"])
+        t1, t2, t3, t4 = st.tabs(["📊 Sales Report", "🕵️ Activity Tracker", "📦 Inventory", "🚨 Reset"])
         
         with t1:
             st.subheader("Project Sales Performance")
-            if storage["download_history"]:
-                df_report = pd.DataFrame(storage["download_history"])
+            # Safe retrieval of history
+            history = storage.get("download_history", [])
+            
+            if history:
+                df_report = pd.DataFrame(history)
 
-                # --- BULLETPROOF DATA ALIGNMENT ---
-                # 1. If old data used "Total", rename it to "Total Package"
+                # --- 1. DATA ALIGNMENT (Fixes KeyErrors) ---
                 if "Total" in df_report.columns and "Total Package" not in df_report.columns:
                     df_report = df_report.rename(columns={"Total": "Total Package"})
                 
-                # 2. If "Total Package" is still missing (empty history), create it as 0
-                if "Total Package" not in df_report.columns:
-                    df_report["Total Package"] = 0
-                
-                # 3. Clean the values (Remove commas/strings) and convert to numbers
-                df_report["Total Package"] = pd.to_numeric(
-                    df_report["Total Package"].astype(str).str.replace(r'[^\d.]', '', regex=True), 
-                    errors='coerce'
-                ).fillna(0)
+                # --- 2. NUMERIC CLEANING (Fixes ValueErrors) ---
+                for col in ["Total Package", "Discount", "Agreement Value"]:
+                    if col in df_report.columns:
+                        df_report[col] = pd.to_numeric(
+                            df_report[col].astype(str).str.replace(r'[^\d.]', '', regex=True), 
+                            errors='coerce'
+                        ).fillna(0)
 
-                # --- SAFE CALCULATION ---
-                total_rev = int(df_report["Total Package"].sum())
-                
-                # Repeat for Discount
-                if "Discount" in df_report.columns:
-                    df_report["Discount"] = pd.to_numeric(
-                        df_report["Discount"].astype(str).str.replace(r'[^\d.]', '', regex=True), 
-                        errors='coerce'
-                    ).fillna(0)
-                    total_disc = int(df_report["Discount"].sum())
-                else:
-                    total_disc = 0
-
-                # --- DISPLAY METRICS ---
+                # --- 3. METRICS SUMMARY ---
                 m1, m2, m3 = st.columns(3)
-                m1.metric("Total Units Sold", len(df_report))
-                m2.metric("Total Revenue", f"₹ {format_indian_currency(total_rev)}")
-                m3.metric("Total Discounts", f"₹ {format_indian_currency(total_disc)}")
+                t_rev = int(df_report["Total Package"].sum()) if "Total Package" in df_report.columns else 0
+                t_disc = int(df_report["Discount"].sum()) if "Discount" in df_report.columns else 0
+                
+                m1.metric("Units Sold", len(df_report))
+                m2.metric("Total Revenue", f"₹ {format_indian_currency(t_rev)}")
+                m3.metric("Total Discounts", f"₹ {format_indian_currency(t_disc)}")
 
                 st.divider()
+
+                # --- 4. TABLE VIEW ---
+                st.write("### Transaction Table")
                 st.dataframe(df_report, use_container_width=True)
+                
+                # --- 5. EXPORT TO CSV ---
+                csv = df_report.to_csv(index=False).encode('utf-8')
+                st.download_button(
+                    label="📥 Export Report to CSV (Excel)",
+                    data=csv,
+                    file_name=f"Tarangan_Report_{datetime.datetime.now().strftime('%Y%m%d')}.csv",
+                    mime="text/csv"
+                )
             else:
-                st.info("No sales data available yet.")
+                st.info("No sales recorded yet. Data will appear after Sales 'Finalizes' a booking.")
 
         with t2:
-            st.subheader("Live Activity Log")
-            if storage["activity_log"]: 
-                st.dataframe(pd.DataFrame(storage["activity_log"]), use_container_width=True)
+            st.subheader("System Activity Logs")
+            # Safe retrieval using .get() to prevent KeyError
+            logs = storage.get("activity_log", [])
+            if logs:
+                st.dataframe(pd.DataFrame(logs), use_container_width=True)
             else:
-                st.info("No activity logged.")
+                st.info("No activity recorded.")
 
-        with t3: # or t4 depending on your layout
-            st.subheader("System Reset")
-            reset_pass = st.text_input("Enter Reset Password:", type="password", key="final_reset_pw")
-            if st.button("⚠️ PERFORM FULL SYSTEM RESET"):
-                if reset_pass == "Atharva Joshi":
-                    # RE-INITIALIZE instead of just deleting
-                    storage["locks"] = {}
-                    storage["sold_units"] = set()
-                    storage["download_history"] = []
-                    storage["activity_log"] = [] # This prevents the KeyError
-                    storage["waiting_customers"] = []
-                    storage["unit_hits"] = {}
-                    storage["booths"] = {letter: None for letter in "ABCDEFGHIJ"}
-                    
-                    st.cache_resource.clear()
-                    st.success("System Reset Successfully!")
-                    st.rerun()
-                else:
-                    st.error("Incorrect Password")
+        with t3:
+            # [Keep your existing inventory unblock logic here]
+            pass
 
         with t4:
             st.subheader("System Reset")
-            st.warning("This will erase all sales data, customer lists, and activity logs.")
-            reset_pass = st.text_input("Enter Reset Password:", type="password", key="admin_reset_pw")
-            if st.button("⚠️ PERFORM FULL SYSTEM RESET", type="primary"):
-                if reset_pass == "Atharva Joshi":
-                    # Deep clear of all storage keys
-                    for key in storage.keys():
-                        if isinstance(storage[key], list): storage[key] = []
-                        elif isinstance(storage[key], dict): 
-                            if key == "booths": storage[key] = {letter: None for letter in "ABCDEFGHIJ"}
-                            else: storage[key] = {}
-                        elif isinstance(storage[key], set): storage[key] = set()
-                    
+            reset_pw = st.text_input("Reset Password:", type="password", key="admin_reset_final")
+            if st.button("💣 WIPE ALL DATA"):
+                if reset_pw == "Atharva Joshi":
+                    # RE-INITIALIZE (Safety first)
+                    storage["locks"] = {}
+                    storage["sold_units"] = set()
+                    storage["download_history"] = []
+                    storage["activity_log"] = []
+                    storage["waiting_customers"] = []
+                    storage["unit_hits"] = {}
+                    storage["booths"] = {letter: None for letter in "ABCDEFGHIJ"}
                     st.cache_resource.clear()
-                    st.success("System Reset Complete.")
+                    st.success("System Reset. Refreshing...")
                     st.rerun()
                 else:
-                    st.error("Incorrect Password.")
+                    st.error("Incorrect Password")
