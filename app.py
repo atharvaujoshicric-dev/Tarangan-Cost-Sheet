@@ -138,57 +138,50 @@ else:
         if st.button("🚪 Logout"): st.session_state.authenticated = False; st.rerun()
 
     # --- GRE DASHBOARD ---
-    # --- GRE DASHBOARD ---
     if st.session_state.role == "GRE":
         st.title("📝 Stage 1: GRE Entry")
         
-        tab_add, tab_edit = st.tabs(["Add Customer", "Manage Waiting List"])
-        
-        with tab_add:
-            with st.form("gre_add", clear_on_submit=True):
-                name = st.text_input("Customer Name").strip()
-                submit = st.form_submit_button("Submit")
-                
-                if submit:
-                    if not name:
-                        st.error("Please enter a name.")
+        # 1. Entry Form
+        with st.form("gre_add", clear_on_submit=True):
+            st.subheader("Add Walk-in Customer")
+            name = st.text_input("Customer Name").strip()
+            submit = st.form_submit_button("Submit")
+            
+            if submit:
+                if not name:
+                    st.error("Please enter a name.")
+                else:
+                    # CHECK 1: Is the name in the Waiting List?
+                    in_waiting = name.upper() in [c.upper() for c in storage["waiting_customers"]]
+                    
+                    # CHECK 2: Is the name already in a Sales Cabin (Booths)?
+                    in_cabins = name.upper() in [str(v).upper() for v in storage["booths"].values() if v is not None]
+
+                    if in_waiting:
+                        st.warning(f"DUPLICATE: '{name}' is already in the Waiting List.")
+                    elif in_cabins:
+                        st.warning(f"DUPLICATE: '{name}' is already inside a Sales Cabin.")
                     else:
-                        # 1. Check current waiting list
-                        in_waiting = name.upper() in [c.upper() for c in storage["waiting_customers"]]
-                        
-                        # 2. Check current cabins (Booths)
-                        in_cabins = name.upper() in [str(v).upper() for v in storage["booths"].values() if v is not None]
-                        
-                        # 3. Check if they already visited/bought (Optional but recommended)
-                        already_visited = name.upper() in [str(h.get('Customer', '')).upper() for h in storage.get("download_history", [])]
+                        # Success: Add to list
+                        storage["waiting_customers"].append(name)
+                        log_activity(st.session_state.user_id, "GRE_ENTRY", f"Added walk-in: {name}")
+                        st.success(f"Customer '{name}' added to waiting list!")
+                        st.rerun()
 
-                        if in_waiting:
-                            st.warning(f"'{name}' is already in the Waiting List.")
-                        elif in_cabins:
-                            st.warning(f"'{name}' is currently inside a Sales Cabin.")
-                        elif already_visited:
-                            st.info(f"'{name}' has already visited today/purchased a unit.")
-                        else:
-                            # Add to storage
-                            storage["waiting_customers"].append(name)
-                            log_activity(st.session_state.user_id, "GRE_ENTRY", f"Added customer: {name}")
-                            st.success(f"Customer '{name}' added successfully!")
-                            st.rerun()
+        st.divider()
 
-        with tab_edit:
-            st.subheader("Current Waiting List")
-            if storage["waiting_customers"]:
-                # Create a table for easy viewing
-                df_wait = pd.DataFrame(storage["waiting_customers"], columns=["Customer Name"])
-                st.table(df_wait)
-                
-                # Option to remove a customer if they leave
-                to_remove = st.selectbox("Select to Remove (if customer left):", ["--Select--"] + storage["waiting_customers"])
-                if st.button("Remove Customer") and to_remove != "--Select--":
-                    storage["waiting_customers"].remove(to_remove)
+        # 2. View/Manage Waiting List
+        st.subheader("📋 Current Waiting List")
+        if storage["waiting_customers"]:
+            # Display as a list with a delete option
+            for i, cust in enumerate(storage["waiting_customers"]):
+                col1, col2 = st.columns([4, 1])
+                col1.write(f"{i+1}. **{cust}**")
+                if col2.button("🗑️ Remove", key=f"del_{i}"):
+                    storage["waiting_customers"].remove(cust)
                     st.rerun()
-            else:
-                st.info("Waiting list is empty.")
+        else:
+            st.info("No customers currently waiting.")
 
     # --- MANAGER DASHBOARD ---
     elif st.session_state.role == "Manager":
