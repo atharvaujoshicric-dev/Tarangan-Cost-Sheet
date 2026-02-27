@@ -2,3 +2,4 @@ streamlit
 pandas
 fpdf
 num2words
+xlsxwriter
