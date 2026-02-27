@@ -1,13 +1,3 @@
-I have updated the **GRE Dashboard** to include both the search/dropdown from your Google Sheet and a manual "Add New Visitor" option. I also ensured that the **Sales person is removed from the cabin** once a cost sheet is downloaded and that the **Opt-Out** logic is fully integrated into the Admin dashboard.
-
-### 🔑 Key Updates:
-
-1. **GRE Dual-Entry:** Added a "Visitor Type" selection. GRE can choose between **"Pre-allotted Customer"** (fetching names from your Excel's 'Customer Allotted' column) or **"New Visitor Walk-in"** (manual text entry).
-2. **Post-Download Cleanup:** The Sales Dashboard now triggers a cabin reset immediately after the PDF download button is generated, ensuring the cabin is freed up for the next customer.
-3. **Opt-Out & Revoke:** Sales can mark a customer as "Opt-Out," which sends them to a special list in the Admin panel. Admin can "Revoke" them to send them back to the Manager's queue.
-4. **Auto-Unlock Logic:** The system strictly fetches the **ID** (Flat No.) based on the **Customer Allotted** name to unlock only that specific unit for the salesperson.
-
-```python
 import streamlit as st
 import pandas as pd
 import re
@@ -73,7 +63,7 @@ def calculate_negotiation(initial_agreement, pkg_discount=0, park_discount=0, us
     gst_pct = 0.05 if final_agreement > 4500000 else 0.01
     REGISTRATION = 30000 
     raw_sd = final_agreement * sd_pct
-    sd_amt = round(raw_sd, -2) 
+    sd_amt = round(raw_sd, -2) # Round to nearest 100
     gst_amt = final_agreement * gst_pct
     total_package = final_agreement + sd_amt + gst_amt + REGISTRATION
     return {
@@ -85,11 +75,13 @@ def calculate_negotiation(initial_agreement, pkg_discount=0, park_discount=0, us
 # --- 4. PDF GENERATION ---
 def create_pdf(unit_id, floor, carpet, costs, cust_name, date_str, use_parking):
     pdf = FPDF()
+    parking_label = "Parking Under Building" if use_parking else "Parking Outside Building"
     for copy_label in ["Customer's Copy", "Sales Copy"]:
         pdf.add_page()
         pdf.set_font("Arial", 'B', 20); pdf.cell(190, 10, "TARANGAN", ln=True, align='C')
         pdf.set_font("Arial", 'B', 12); pdf.cell(190, 10, f"Customer: {cust_name}", ln=True)
-        pdf.cell(190, 10, f"Unit: {unit_id} | Total: {format_indian_currency(costs['Total'])}", ln=True)
+        pdf.cell(190, 10, f"Unit: {unit_id} | Floor: {floor} | Parking: {parking_label}", ln=True)
+        pdf.cell(95, 10, "Total Package", border=1); pdf.cell(95, 10, format_indian_currency(costs['Total']), border=1, ln=True)
     return pdf.output(dest='S').encode('latin-1')
 
 # --- 5. UI SETUP ---
@@ -109,12 +101,15 @@ def download_dialog(unit_id, floor, carpet, costs, cust_name, date_str, use_park
         if not sales_name.strip(): st.error("Name required.")
         else:
             pdf_bytes = create_pdf(unit_id, floor, carpet, costs, cust_name, date_str, use_parking)
-            storage["download_history"].append({"Sales": sales_name, "Unit": unit_id, "Customer": cust_name, "Total": costs['Total']})
+            storage["download_history"].append({
+                "Timestamp": ist_log_time, "Sales Person": sales_name, "Unit ID": unit_id, 
+                "Customer": cust_name, "Total Package": costs['Total']
+            })
             storage["sold_units"].add(unit_id)
-            # CLEAR CABIN
-            storage["booths"][cabin_key] = None
+            storage["booths"][cabin_key] = None # AUTO-CLEAR CABIN
             st.session_state.search_id_input = ""
-            st.success("Booked! Cabin is now free.")
+            if unit_id in storage["locks"]: del storage["locks"][unit_id]
+            st.success("Unit Booked! Cabin is now Free.")
             st.download_button("📥 Save PDF", pdf_bytes, f"Tarangan_{unit_id}.pdf", "application/pdf")
 
 def release_unit_callback(unit_to_release):
@@ -130,8 +125,9 @@ if not st.session_state.authenticated:
     if st.button("Login"):
         creds = {"Tarangan": "Tarangan@0103", "Sales": "Sales@2026", "GRE": "Gre@2026", "Manager": "Manager@2026"}
         if u in creds and p == creds[u]:
-            st.session_state.authenticated, st.session_state.role = True, u
+            st.session_state.authenticated, st.session_state.role, st.session_state.user_id = True, u, u
             st.rerun()
+        else: st.error("Invalid credentials.")
 else:
     if st.sidebar.button("Logout"): st.session_state.authenticated = False; st.rerun()
 
@@ -139,19 +135,25 @@ else:
     if st.session_state.role == "GRE":
         st.title("📝 Stage 1: GRE Entry")
         inventory = load_data()
+        allotted_list = sorted(list(inventory['Customer Allotted'].dropna().unique()))
         
-        entry_mode = st.radio("Visitor Type:", ["Pre-allotted Customer", "New Visitor Walk-in"])
+        st.subheader("Add Allotted Customer")
+        name_sel = st.selectbox("Search/Select Allotted Name:", ["Select Name"] + allotted_list)
+        if st.button("Add Allotted to Waiting List"):
+            if name_sel != "Select Name":
+                if name_sel.upper() not in [c.upper() for c in storage["waiting_customers"]]:
+                    storage["waiting_customers"].append(name_sel); st.success(f"Added {name_sel}")
+                else: st.warning("Already in queue.")
         
-        if entry_mode == "Pre-allotted Customer":
-            allotted_list = sorted(list(inventory['Customer Allotted'].dropna().unique()))
-            name = st.selectbox("Search/Select Name:", [""] + allotted_list)
-        else:
-            name = st.text_input("Enter New Customer Name:").strip()
-            
-        if st.button("Add to Waiting List"):
-            if name:
-                storage["waiting_customers"].append(name); st.success(f"Added {name}")
-            else: st.error("Name cannot be empty.")
+        st.write("---")
+        st.subheader("Add New (Walk-in) Customer")
+        new_name = st.text_input("Enter New Customer Name:").strip()
+        if st.button("Add New Customer"):
+            if new_name:
+                if new_name.upper() not in [c.upper() for c in storage["waiting_customers"]]:
+                    storage["waiting_customers"].append(new_name); st.success(f"Added New: {new_name}")
+                else: st.warning("Name already in queue.")
+            else: st.error("Please enter a name.")
 
     # --- MANAGER ---
     elif st.session_state.role == "Manager":
@@ -174,34 +176,33 @@ else:
         cust_name = storage["booths"].get(my_cabin)
         
         if not cust_name:
-            st.warning("Cabin empty.")
+            st.warning(f"No customer assigned to Cabin {my_cabin}.")
         else:
             inventory = load_data()
             token_row = inventory[inventory['Customer Allotted'].astype(str).str.contains(cust_name, case=False, na=False)]
             assigned_id = str(token_row['ID'].values[0]).upper() if not token_row.empty else "NONE"
             
-            st.info(f"Serving: **{cust_name}** | Target: **{assigned_id}**")
-            
+            st.info(f"Serving: **{cust_name}** | Target Flat: **{assigned_id}**")
+
             if st.button("❌ Customer Opted Out"):
                 storage["opted_out_customers"].append(cust_name)
                 storage["booths"][my_cabin] = None
-                st.error("Customer marked as Opt-Out. Cabin freed.")
+                st.error(f"{cust_name} marked as Opt-Out. Cabin cleared.")
                 st.rerun()
 
             search_id = st.session_state.get("search_id_input", "").upper()
-            with st.expander("📁 Inventory", expanded=(search_id == "")):
+            with st.expander("📁 Inventory Grid", expanded=(search_id == "")):
                 grid_cols = st.columns(6)
                 for idx, row in inventory.iterrows():
                     uid = str(row['ID']).upper()
                     is_sold = uid in storage["sold_units"]
                     is_busy = uid in storage["locks"] and storage["locks"][uid] != st.runtime.scriptrunner.get_script_run_ctx().session_id
                     is_blocked = not (storage["admin_overrides"].get(my_cabin) or uid == assigned_id)
-                    
                     with grid_cols[idx % 6]:
-                        if is_sold: lbl, clr = f"🟢 {uid}", True
-                        elif is_busy: lbl, clr = f"🔴 BUSY", True
-                        else: lbl, clr = f"🟡 {uid}", is_blocked
-                        if st.button(lbl, key=f"btn_{uid}", use_container_width=True, disabled=clr):
+                        if is_sold: lbl, dis = f"🟢 {uid}", True
+                        elif is_busy: lbl, dis = f"🔴 BUSY", True
+                        else: lbl, dis = f"🟡 {uid}", is_blocked
+                        if st.button(lbl, key=f"btn_{uid}", use_container_width=True, disabled=dis):
                             st.session_state.search_id_input = uid; st.rerun()
 
             if search_id:
@@ -210,7 +211,6 @@ else:
                     row = match.iloc[0]
                     storage["locks"][search_id] = st.runtime.scriptrunner.get_script_run_ctx().session_id
                     res = calculate_negotiation(clean_numeric(row.get('Agreement Value', 0)), 0, 0, st.checkbox("Parking"), False)
-                    st.markdown(f'<div style="background:white;padding:20px;border:2px solid black;"><b>Unit:</b> {search_id}<br><b>Total:</b> {format_indian_currency(res["Total"])}</div>', unsafe_allow_html=True)
                     if st.button("📥 Download"): 
                         download_dialog(search_id, row.get('Floor','N/A'), "N/A", res, cust_name, "2026", False, "2026", my_cabin)
                     st.button("❌ Close", on_click=release_unit_callback, args=(search_id,))
@@ -218,7 +218,7 @@ else:
     # --- ADMIN ---
     elif st.session_state.role == "Tarangan":
         st.title("🛠️ Admin Dashboard")
-        t1, t2, t3 = st.tabs(["Requests", "Opt-Outs", "Reset"])
+        t1, t2, t3 = st.tabs(["Requests", "Opt-Out List", "Reset"])
         with t1:
             for cabin, status in storage["admin_overrides"].items():
                 if st.button(f"{'🚫 Revoke' if status else '✅ Approve'} Cabin {cabin}"):
@@ -226,11 +226,10 @@ else:
         with t2:
             if storage["opted_out_customers"]:
                 rev_c = st.selectbox("Revoke Opt-Out:", storage["opted_out_customers"])
-                if st.button("Move back to Waiting"):
+                if st.button("Move back to Waiting Room"):
                     storage["waiting_customers"].append(rev_c)
                     storage["opted_out_customers"].remove(rev_c); st.rerun()
+            else: st.info("No opt-outs.")
         with t3:
             if st.text_input("Password", type="password") == "Atharva Joshi":
-                if st.button("⚠️ RESET"): storage["locks"].clear(); storage["sold_units"].clear(); st.rerun()
-
-```
+                if st.button("⚠️ FULL RESET"): storage["locks"].clear(); storage["sold_units"].clear(); st.rerun()
