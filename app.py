@@ -151,24 +151,34 @@ else:
                 if not name:
                     st.error("Please enter a name.")
                 else:
-                    # CHECK 1: Is the name in the Waiting List?
+                    # Duplicate Checks
                     in_waiting = name.upper() in [c.upper() for c in storage["waiting_customers"]]
-                    
-                    # CHECK 2: Is the name already in a Sales Cabin (Booths)?
                     in_cabins = name.upper() in [str(v).upper() for v in storage["booths"].values() if v is not None]
 
-                    if in_waiting:
-                        st.warning(f"DUPLICATE: '{name}' is already in the Waiting List.")
-                    elif in_cabins:
-                        st.warning(f"DUPLICATE: '{name}' is already inside a Sales Cabin.")
+                    if in_waiting or in_cabins:
+                        st.warning(f"DUPLICATE: '{name}' is already in the system.")
                     else:
-                        # Success: Add to list
                         storage["waiting_customers"].append(name)
-                        log_activity(st.session_state.user_id, "GRE_ENTRY", f"Added walk-in: {name}")
-                        st.success(f"Customer '{name}' added to waiting list!")
+                        st.success(f"Added: {name}")
                         st.rerun()
 
-        st.divider()
+        st.divider() # This separates the form from the list
+
+        # 2. THE CUSTOMER LIST (Look here!)
+        st.subheader("📋 Current Waiting List")
+        
+        if not storage["waiting_customers"]:
+            st.info("The waiting list is currently empty.")
+        else:
+            # We use a loop to show every name in the storage
+            for i, cust in enumerate(storage["waiting_customers"]):
+                col_name, col_btn = st.columns([4, 1])
+                with col_name:
+                    st.write(f"{i+1}. **{cust}**")
+                with col_btn:
+                    if st.button("🗑️ Remove", key=f"remove_{i}"):
+                        storage["waiting_customers"].remove(cust)
+                        st.rerun()
 
         # 2. View/Manage Waiting List
         st.subheader("📋 Current Waiting List")
