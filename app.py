@@ -230,13 +230,27 @@ else:
             hot_list = [u for u, c in sorted(available_hits.items(), key=lambda x: x[1], reverse=True)[:3]]
             
             if hot_list:
-                st.subheader("⚫ Trending Units")
+                st.write("---")
+                st.markdown("### 🔥 Trending Units")
                 h_cols = st.columns(6)
                 for i, uid in enumerate(hot_list):
                     with h_cols[i]:
-                        st.markdown(f'<div style="background-color:#000;border-radius:8px;padding:6px;text-align:center;color:#fff;border:1px solid #333;"><p style="font-size:11px;margin:0;color:#888;">Trend #{i+1}</p><p style="font-size:16px;font-weight:bold;margin:0;">Unit {uid}</p></div>', unsafe_allow_html=True)
-
-            search_id = st.session_state.get("search_id_input", "").upper()
+                        st.markdown(f"""
+                        <div style="
+                            background: #121212;
+                            border: 2px solid #D4AF37;
+                            border-radius: 15px;
+                            padding: 12px;
+                            text-align: center;
+                            box-shadow: 0 4px 15px rgba(212, 175, 55, 0.3);
+                            transition: transform 0.3s;">
+                            <p style="color: #D4AF37; font-size: 10px; font-weight: bold; margin: 0; letter-spacing: 1px;">TOP CHOICE #{i+1}</p>
+                            <p style="color: white; font-size: 20px; font-weight: 900; margin: 5px 0;">{uid}</p>
+                            <div style="background: rgba(0, 255, 0, 0.1); border-radius: 20px; display: inline-block; padding: 2px 10px;">
+                                <p style="color: #00FF00; font-size: 10px; margin: 0; font-weight: bold;">● {available_hits[uid]} LIVE VIEWS</p>
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
             
             # --- AUTO-COLLAPSE GRID ---
             with st.expander("📁 Inventory Selection Grid", expanded=(search_id == "")):
