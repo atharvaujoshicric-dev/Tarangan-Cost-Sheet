@@ -227,14 +227,16 @@ else:
             hot_list = [u for u, c in sorted(available_hits.items(), key=lambda x: x[1], reverse=True)[:3]]
             
             if hot_list:
-                st.subheader("⚫ Top 3 Hottest Selling Units")
-                h_cols = st.columns(3)
+                st.subheader("⚫ Trending Available Units")
+                h_cols = st.columns(6) # Spreading small boxes across more columns to make them smaller
                 for i, uid in enumerate(hot_list):
                     with h_cols[i]:
                         st.markdown(f"""
-                        <div style="background-color: #000000; border: 2px solid #333333; border-radius: 10px; padding: 15px; text-align: center; color: white;">
-                            <h4 style="color: #FFFFFF; margin: 0;">🔥 HOT SELLING # {i+1}</h4>
-                            <p style="font-size: 24px; font-weight: bold; margin: 10px 0;">Unit {uid}</p>
+                        <div style="background-color: #000000; border-radius: 8px; padding: 6px 12px; text-align: center; color: white; border: 1px solid #333;">
+                            <p style="font-size: 11px; margin: 0; color: #888; text-transform: uppercase;">Trend #{i+1}</p>
+                            <p style="font-size: 16px; font-weight: bold; margin: 0;">Unit {uid}</p>
+                        </div>
+                        """, unsafe_allow_html=True)
 
             search_id = st.session_state.get("search_id_input", "").upper()
             
