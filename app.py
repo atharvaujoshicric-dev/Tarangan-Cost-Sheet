@@ -156,19 +156,14 @@ def download_dialog(unit_id, floor, carpet, costs, cust_name, date_str, use_park
         else:
             pdf_bytes = create_pdf(unit_id, floor, carpet, costs, cust_name, date_str, use_parking)
             storage["download_history"].append({
-                "Timestamp": ist_log_time, 
-                "Sales Person": sales_name, 
-                "Unit ID": unit_id, 
-                "Customer": cust_name, 
-                "Agreement Value": costs['Final Agreement'],
-                "GST": costs['GST'],
-                "Stamp Duty": costs['Stamp Duty'],
-                "Registration": costs['Registration'],
-                "Discount": costs['Combined_Discount'],
+                "Timestamp": ist_log_time, "Sales Person": sales_name, "Unit ID": unit_id, 
+                "Customer": cust_name, "Agreement Value": costs['Final Agreement'],
+                "GST": costs['GST'], "Stamp Duty": costs['Stamp Duty'],
+                "Registration": costs['Registration'], "Discount": costs['Combined_Discount'],
                 "Total Package": costs['Total']
             })
             storage["sold_units"].add(unit_id)
-            log_activity(st.session_state.user_id, "BOOKING", f"Unit {unit_id} booked by {sales_name}")
+            log_activity(st.session_state.user_id, "BOOKING", f"Unit {unit_id} booked for {cust_name}")
             st.success("Unit Booked!")
             st.download_button("📥 Save PDF", pdf_bytes, f"Tarangan_{unit_id}.pdf", "application/pdf")
 
@@ -176,24 +171,20 @@ def release_unit_callback(unit_to_release):
     if unit_to_release in storage["locks"]: del storage["locks"][unit_to_release]
     st.session_state.search_id_input = ""
 
-# --- 6. LOGIN SYSTEM ---
+# --- 6. LOGIN ---
 if 'authenticated' not in st.session_state: st.session_state.authenticated = False
 
 if not st.session_state.authenticated:
     st.title("🔐 Tarangan Login")
-    u = st.text_input("Username")
-    p = st.text_input("Password", type="password")
+    u, p = st.text_input("Username"), st.text_input("Password", type="password")
     if st.button("Login"):
         creds = {"Tarangan": "Tarangan@0103", "Sales": "Sales@2026", "GRE": "Gre@2026", "Manager": "Manager@2026"}
         if u in creds and p == creds[u]:
             st.session_state.authenticated, st.session_state.role, st.session_state.user_id = True, u, u
-            log_activity(u, "LOGIN", "System access granted.")
             st.rerun()
         else: st.error("Invalid credentials.")
 else:
-    if st.sidebar.button("Logout"): 
-        log_activity(st.session_state.user_id, "LOGOUT", "User session ended.")
-        st.session_state.authenticated = False; st.rerun()
+    if st.sidebar.button("Logout"): st.session_state.authenticated = False; st.rerun()
 
     # --- GRE ---
     if st.session_state.role == "GRE":
@@ -246,6 +237,8 @@ else:
                         st.markdown(f'<div style="background-color:#000;border-radius:8px;padding:6px;text-align:center;color:#fff;border:1px solid #333;"><p style="font-size:11px;margin:0;color:#888;">Trend #{i+1}</p><p style="font-size:16px;font-weight:bold;margin:0;">Unit {uid}</p></div>', unsafe_allow_html=True)
 
             search_id = st.session_state.get("search_id_input", "").upper()
+            
+            # --- AUTO-COLLAPSE GRID ---
             with st.expander("📁 Inventory Selection Grid", expanded=(search_id == "")):
                 grid_cols = st.columns(6)
                 for idx, row in inventory.iterrows():
@@ -256,71 +249,75 @@ else:
                     
                     with grid_cols[idx % 6]:
                         if is_sold: lbl, clr = f"🟢 {uid}", True
-                        elif is_busy: lbl, clr = f"🔴 BUSY", True # Busy is Red
+                        elif is_busy: lbl, clr = f"🔴 BUSY", True
                         elif is_hot: lbl, clr = f"⚫ {uid}", False
-                        else: lbl, clr = f"🟡 {uid}", False # Default Yellow
+                        else: lbl, clr = f"🟡 {uid}", False
                         
                         if st.button(lbl, key=f"btn_{uid}", use_container_width=True, disabled=clr or is_restricted):
                             st.session_state.search_id_input = uid
                             storage["unit_hits"][uid] = storage["unit_hits"].get(uid, 0) + 1
                             st.rerun()
 
+            # --- ORIGINAL MONOCHROME ONSCREEN COST SHEET ---
             if search_id:
                 match = inventory[inventory['ID'].astype(str).str.upper() == search_id]
                 if not match.empty:
                     row = match.iloc[0]
                     storage["locks"][search_id] = st.runtime.scriptrunner.get_script_run_ctx().session_id
+                    ist_now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=5, minutes=30)))
+                    today_str = ist_now.strftime("%d/%m/%Y")
+                    
                     st.write("---")
                     c1, c2, c3 = st.columns(3)
                     with c1:
                         use_d = st.checkbox("Discount")
-                        d_val = st.number_input("Amt:", value=0) if use_d else 0
+                        d_val = st.number_input("Amt:", value=0, step=1000) if use_d else 0
                     with c2:
                         use_p = st.checkbox("Parking")
-                        p_val = st.number_input("Park Disc:", value=0) if use_p else 0
+                        p_val = st.number_input("Park Disc:", value=0, step=1000) if use_p else 0
                     with c3: is_f = st.checkbox("Female")
                     
                     res = calculate_negotiation(clean_numeric(row.get('Agreement Value', 0)), d_val, p_val, use_p, is_f)
-                    st.markdown(f'<div style="background:white;padding:30px;border:2px solid black;color:black;font-family:monospace;"><div style="text-align:right;">Date: {datetime.datetime.now().strftime("%d/%m/%Y")}</div><h2 style="text-align:center;border-bottom:2px solid black;">TARANGAN</h2><p><b>Customer:</b> {cust_name}</p><p><b>Unit:</b> {search_id} | <b>Floor:</b> {row.get("Floor","N/A")}</p><div style="display:flex;justify-content:space-between;border-bottom:1px dotted #888;padding:5px 0;"><span>Agreement</span><span>Rs. {format_indian_currency(res["Final Agreement"])}</span></div><div style="display:flex;justify-content:space-between;font-weight:bold;font-size:1.2em;border-top:2px solid black;margin-top:10px;padding:10px 0;"><span>TOTAL</span><span>Rs. {format_indian_currency(res["Total"])}</span></div></div>', unsafe_allow_html=True)
+
+                    st.markdown(f"""
+                        <div style="background:white; padding:30px; border:2px solid black; color:black; font-family:monospace;">
+                            <div style="text-align:right;">Date: {today_str}</div>
+                            <h2 style="text-align:center; border-bottom:2px solid black;">TARANGAN</h2>
+                            <p><b>Customer:</b> {cust_name}</p>
+                            <p><b>Unit:</b> {search_id} | <b>Floor:</b> {row.get('Floor','N/A')} | <b>Carpet:</b> {row.get('CARPET','N/A')} sqft</p>
+                            <div style="display:flex; justify-content:space-between; border-bottom:1px dotted #888; padding:5px 0;"><span>Agreement</span><span>Rs. {format_indian_currency(res['Final Agreement'])}</span></div>
+                            <div style="display:flex; justify-content:space-between; border-bottom:1px dotted #888; padding:5px 0;"><span>Stamp Duty ({int(res['SD_Pct'])}%)</span><span>Rs. {format_indian_currency(res['Stamp Duty'])}</span></div>
+                            <div style="display:flex; justify-content:space-between; border-bottom:1px dotted #888; padding:5px 0;"><span>GST ({int(res['GST_Pct'])}%)</span><span>Rs. {format_indian_currency(res['GST'])}</span></div>
+                            <div style="display:flex; justify-content:space-between; border-bottom:1px dotted #888; padding:5px 0;"><span>Registration</span><span>Rs. {format_indian_currency(res['Registration'])}</span></div>
+                            <div style="display:flex; justify-content:space-between; font-weight:bold; font-size:1.2em; border-top:2px solid black; margin-top:10px; padding:10px 0;"><span>TOTAL</span><span>Rs. {format_indian_currency(res['Total'])}</span></div>
+                            <div style="font-style:italic; margin-top:5px;">Rupees {num2words(res['Total'], lang='en_IN').title().replace(",","")} Only</div>
+                            <div style="color:red; font-weight:bold; margin-top:10px;">Total Discount Availed: Rs. {format_indian_currency(res['Combined_Discount'])}</div>
+                        </div>
+                    """, unsafe_allow_html=True)
                     
+                    st.write("")
                     col_d, col_r = st.columns(2)
-                    with col_d: 
-                        if st.button("📥 Download PDF & Block"): download_dialog(search_id, row.get('Floor','N/A'), row.get('CARPET','N/A'), res, cust_name, "2026", use_p, "2026")
-                    with col_r: st.button("❌ Close", on_click=release_unit_callback, args=(search_id,))
+                    with col_d:
+                        if st.button("📥 Download PDF & Block"):
+                            download_dialog(search_id, row.get('Floor','N/A'), row.get('CARPET','N/A'), res, cust_name, today_str, use_p, ist_now.strftime("%d/%m/%Y %H:%M:%S"))
+                    with col_r:
+                        st.button("❌ Close / Release", on_click=release_unit_callback, args=(search_id,))
 
     # --- ADMIN ---
     elif st.session_state.role == "Tarangan":
         st.title("🛠️ Admin Master Dashboard")
-        if st.button("🔄 Refresh System Data"): st.rerun()
-        
+        if st.button("🔄 Refresh System"): st.rerun()
         t1, t2, t3 = st.tabs(["Activity Tracker", "Booking Management", "System Reset"])
-        
         with t1:
-            if storage["activity_log"]:
-                st.dataframe(pd.DataFrame(storage["activity_log"]), use_container_width=True)
-            else: st.info("No logs found.")
-        
+            if storage["activity_log"]: st.dataframe(pd.DataFrame(storage["activity_log"]), use_container_width=True)
         with t2:
-            st.subheader("📋 Booked Flats Records")
             if storage["download_history"]:
-                df_booked = pd.DataFrame(storage["download_history"])
-                st.dataframe(df_booked, use_container_width=True)
-                
-                st.write("---")
-                st.subheader("🔓 Unblock Unit")
+                df_disp = pd.DataFrame(storage["download_history"])
+                st.dataframe(df_disp, use_container_width=True)
                 unit_to_unblock = st.selectbox("Select Unit ID to restore:", list(storage["sold_units"]))
-                if st.button("Confirm Unblock"):
-                    storage["sold_units"].remove(unit_to_unblock)
-                    storage["download_history"] = [item for item in storage["download_history"] if item.get("Unit ID") != unit_to_unblock]
-                    log_activity("Admin", "UNBLOCK", f"Unit {unit_to_unblock} restored to inventory.")
-                    st.success(f"Unit {unit_to_unblock} is available again.")
-                    st.rerun()
-            else: st.info("No units booked yet.")
-
+                if st.button("Unblock & Restore Unit"):
+                    storage["sold_units"].remove(unit_to_unblock); st.rerun()
         with t3:
-            st.warning("This wipes all data including logs and bookings.")
-            if st.button("⚠️ PERFORM FULL SYSTEM RESET"):
+            if st.button("⚠️ FULL SYSTEM RESET"):
                 storage["locks"].clear(); storage["sold_units"].clear(); storage["download_history"].clear()
-                storage["activity_log"].clear(); storage["waiting_customers"].clear(); storage["unit_hits"].clear()
-                storage["booths"] = {letter: None for letter in "ABCDEFGHIJ"}
-                st.rerun()
+                storage["booths"] = {letter: None for letter in "ABCDEFGHIJ"}; st.rerun()
