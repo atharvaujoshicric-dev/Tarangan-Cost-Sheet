@@ -137,76 +137,10 @@ else:
         if st.button("🔄 Refresh System"): st.rerun()
         if st.button("🚪 Logout"): st.session_state.authenticated = False; st.rerun()
 
-    # --- GRE DASHBOARD ---
-    elif st.session_state.role == "GRE":
-        st.title("📝 Stage 1: GRE Entry")
-        
-        # Load the latest inventory/customer data from Google Sheets
-        df_master = load_data()
-        
-        col_left, col_right = st.columns(2)
-
-        # --- LEFT SIDE: GOOGLE SHEET CUSTOMER FETCH ---
-        with col_left:
-            st.subheader("📋 Search Existing Database")
-            # Assuming your Google Sheet has a column named 'Customer Name' or similar
-            # If not, adjust 'Customer Name' to the correct column header from your sheet
-            if 'Customer Name' in df_master.columns:
-                db_customers = sorted(df_master['Customer Name'].dropna().unique().tolist())
-                
-                selected_cust = st.selectbox("Select Customer from List:", ["-- Search & Select --"] + db_customers)
-                
-                if st.button("Add Selected to Waiting"):
-                    if selected_cust != "-- Search & Select --":
-                        name = selected_cust.strip()
-                        
-                        # Duplicate Checks
-                        in_waiting = name.upper() in [c.upper() for c in storage["waiting_customers"]]
-                        in_cabins = name.upper() in [str(v).upper() for v in storage["booths"].values() if v is not None]
-
-                        if in_waiting or in_cabins:
-                            st.warning(f"DUPLICATE: '{name}' is already in the system.")
-                        else:
-                            storage["waiting_customers"].append(name)
-                            st.success(f"Added {name} from Database")
-                            st.rerun()
-            else:
-                st.info("No 'Customer Name' column found in Google Sheet.")
-
-        # --- RIGHT SIDE: NEW WALK-IN ENTRY ---
-        with col_right:
-            st.subheader("🚶 New Walk-in")
-            with st.form("walkin_form", clear_on_submit=True):
-                new_name = st.text_input("Enter Walk-in Name:").strip()
-                if st.form_submit_button("Add Walk-in"):
-                    if new_name:
-                        # Duplicate Checks
-                        in_waiting = new_name.upper() in [c.upper() for c in storage["waiting_customers"]]
-                        in_cabins = new_name.upper() in [str(v).upper() for v in storage["booths"].values() if v is not None]
-
-                        if in_waiting or in_cabins:
-                            st.warning(f"DUPLICATE: '{new_name}' is already in the system.")
-                        else:
-                            storage["waiting_customers"].append(new_name)
-                            st.success(f"Added Walk-in: {new_name}")
-                            st.rerun()
-                    else:
-                        st.error("Please enter a name.")
-
-        st.divider()
-
-        # --- BOTTOM: THE LIVE WAITING LIST ---
-        st.subheader("📊 Live Waiting List (To be assigned by Manager)")
-        if storage["waiting_customers"]:
-            # Displaying in a cleaner table format
-            for i, cust in enumerate(storage["waiting_customers"]):
-                c1, c2 = st.columns([5, 1])
-                c1.info(f"**{i+1}. {cust}**")
-                if c2.button("🗑️ Remove", key=f"gre_rm_{i}"):
-                    storage["waiting_customers"].remove(cust)
-                    st.rerun()
-        else:
-            st.write("List is currently empty.")
+    File "/mount/src/tarangan-cost-sheet/app.py", line 141
+      elif st.session_state.role == "GRE":
+      ^
+SyntaxError: invalid syntax
     # --- MANAGER DASHBOARD ---
     elif st.session_state.role == "Manager":
         st.title("👔 Manager Assignment")
