@@ -279,7 +279,7 @@ else:
                     with c3: is_f = st.checkbox("Female")
                     
                     res = calculate_negotiation(clean_numeric(row.get('Agreement Value', 0)), d_val, p_val, use_p, is_f)
-                    park_loc_label = "Parking Under Building" if use_p else "Parking Outside Building"
+                    park_loc_label = "Parking Under Building" if use_p else "1 Car Parking"
 
                     st.markdown(f"""
                         <div style="background:white; padding:30px; border:2px solid black; color:black; font-family:monospace;">
