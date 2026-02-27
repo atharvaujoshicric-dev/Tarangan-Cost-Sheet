@@ -202,7 +202,7 @@ if not st.session_state.authenticated:
 else:
     if st.sidebar.button("Logout"): st.session_state.authenticated = False; st.rerun()
 
-    # --- GRE ---
+    # --- STAGE 1: GRE ---
     if st.session_state.role == "GRE":
         st.title("📝 Stage 1: GRE Entry")
         if st.button("🔄 Refresh"): st.rerun()
@@ -224,29 +224,57 @@ else:
                     col_a.write(f"**{i+1}. {cust}**")
                     if col_b.button("Remove", key=f"rem_{i}"): storage["waiting_customers"].pop(i); st.rerun()
 
-    # --- MANAGER ---
+    # --- STAGE 2: MANAGER (FIXED ASSIGNMENT) ---
     elif st.session_state.role == "Manager":
         st.title("👔 Stage 2: Manager Assignment")
-        if st.button("🔄 Refresh"): st.rerun()
-        t_m1, t_m2 = st.tabs(["Assign", "Manage Cabins"])
+        if st.button("🔄 Refresh Data"): st.rerun()
+        
+        t_m1, t_m2 = st.tabs(["Assign Cabin", "Active Cabins Status"])
+        
         with t_m1:
-            col1, col2 = st.columns(2)
-            if storage["waiting_customers"]:
-                sel_c = col1.selectbox("Select Customer:", storage["waiting_customers"])
-                sel_b = col1.selectbox("Cabin:", [b for b, v in storage["booths"].items() if v is None])
-                if col1.button("Confirm Assignment"):
-                    storage["booths"][sel_b] = sel_c; storage["waiting_customers"].remove(sel_c); st.rerun()
-            col2.table([{"Cabin": k, "Customer": v if v else "Free"} for k, v in storage["booths"].items()])
+            col_assign, col_status = st.columns([2, 1])
+            with col_assign:
+                st.subheader("Assign Next Customer")
+                if storage["waiting_customers"]:
+                    cust_to_assign = st.selectbox("Select Customer from List:", storage["waiting_customers"])
+                    available_cabins = [k for k, v in storage["booths"].items() if v is None]
+                    
+                    if available_cabins:
+                        cabin_to_assign = st.selectbox("Select Available Cabin:", available_cabins)
+                        if st.button("Confirm Assignment"):
+                            # Perform the assignment
+                            storage["booths"][cabin_to_assign] = cust_to_assign
+                            storage["waiting_customers"].remove(cust_to_assign)
+                            st.success(f"Assigned {cust_to_assign} to Cabin {cabin_to_assign}")
+                            st.rerun()
+                    else:
+                        st.warning("All cabins are currently occupied.")
+                else:
+                    st.info("Waiting list is empty. GRE needs to add customers.")
+            
+            with col_status:
+                st.subheader("Live Overview")
+                status_data = [{"Cabin": k, "Customer": v if v else "🟢 Available"} for k, v in storage["booths"].items()]
+                st.table(status_data)
+
         with t_m2:
             occupied = {k: v for k, v in storage["booths"].items() if v}
             if occupied:
-                b_key = st.selectbox("Cabin:", list(occupied.keys()))
-                c1, c2 = st.columns(2)
-                if c1.button("Move back to Waiting"):
-                    storage["waiting_customers"].append(occupied[b_key]); reset_cabin_session(b_key); st.rerun()
-                if c2.button("Remove Customer"): reset_cabin_session(b_key); st.rerun()
+                st.subheader("Manage Occupied Cabins")
+                for c_id, c_cust in occupied.items():
+                    with st.expander(f"Cabin {c_id}: {c_cust}"):
+                        c1, c2 = st.columns(2)
+                        if c1.button(f"Revert {c_id} to Waiting List", key=f"rev_list_{c_id}"):
+                            storage["waiting_customers"].append(c_cust)
+                            reset_cabin_session(c_id)
+                            st.rerun()
+                        if c2.button(f"Clear Cabin {c_id} (End Session)", key=f"clear_{c_id}"):
+                            reset_cabin_session(c_id)
+                            st.rerun()
+            else:
+                st.info("No cabins are currently active.")
 
-    # --- SALES ---
+    # --- STAGE 3: SALES ---
     elif st.session_state.role == "Sales":
         st.title("🏙️ Stage 3: Sales Portal")
         if st.button("🔄 Refresh"): st.rerun()
@@ -263,6 +291,7 @@ else:
                 req = st.text_input("Request Unit Unblock:").upper()
                 if st.button(f"Request Unblock ({rem} left)"):
                     if req: storage["pending_requests"][my_cabin] = req; st.toast("Sent.")
+            
             if st.button("❌ Opt-Out"):
                 storage["opted_out_customers"].append(cust_name); reset_cabin_session(my_cabin); st.rerun()
 
@@ -296,6 +325,7 @@ else:
                     with c3: is_f = st.checkbox("Female")
                     
                     res = calculate_negotiation(clean_numeric(row.get('Agreement Value', 0)), d_val, p_val, use_p, is_f)
+                    
                     st.markdown(f"""
                         <div style="background:white; padding:30px; border:2px solid black; color:black; font-family:monospace;">
                             <div style="text-align:right;">Date: {ist_now.strftime("%d/%m/%Y")}</div>
@@ -311,6 +341,7 @@ else:
                             <div style="color:red; font-weight:bold; margin-top:10px;">Total Discount Availed: Rs. {format_indian_currency(res['Combined_Discount'])}</div>
                         </div>
                     """, unsafe_allow_html=True)
+                    
                     if st.button("📥 Download & Email"):
                         download_dialog(search_id, row.get('Floor','N/A'), row.get('CARPET','N/A'), res, cust_name, ist_now.strftime("%d/%m/%Y %H:%M"), my_cabin)
                     st.button("❌ Close", on_click=lambda: st.session_state.update({"search_id_input": ""}))
@@ -343,18 +374,12 @@ else:
                     storage["download_history"] = [d for d in storage["download_history"] if d.get("Unit No") != to_release]
                     st.success(f"Unit {to_release} Released."); st.rerun()
         with t5:
-            st.warning("🚨 SYSTEM-WIDE RESET: This will clear ALL cabins, waiting lists, and reports.")
-            if st.text_input("Enter Admin Password to confirm reset:", type="password") == "Atharva Joshi":
+            st.warning("🚨 SYSTEM-WIDE RESET")
+            if st.text_input("Enter Admin Password:", type="password") == "Atharva Joshi":
                 if st.button("🚨 WIPE ALL SYSTEM DATA"):
-                    # COMPLETE FACTORY RESET
-                    storage["locks"].clear()
-                    storage["sold_units"].clear()
-                    storage["download_history"].clear()
-                    storage["waiting_customers"].clear()
-                    storage["pending_requests"].clear()
-                    storage["opted_out_customers"].clear()
+                    storage["locks"].clear(); storage["sold_units"].clear(); storage["download_history"].clear()
+                    storage["waiting_customers"].clear(); storage["pending_requests"].clear()
                     for b in storage["booths"]: storage["booths"][b] = None
                     for b in storage["approved_units"]: storage["approved_units"][b] = []
                     for b in storage["unblock_counts"]: storage["unblock_counts"][b] = 0
-                    st.success("The system has been completely wiped.")
-                    st.rerun()
+                    st.success("System wiped."); st.rerun()
