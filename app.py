@@ -122,21 +122,6 @@ def create_pdf(unit_id, floor, carpet, costs, cust_name, date_str, use_parking):
 # --- APP START ---
 st.set_page_config(page_title="Tarangan Dash", layout="wide")
 
-if 'authenticated' not in st.session_state: st.session_state.authenticated = False
-
-if not st.session_state.authenticated:
-    st.title("🔐 Tarangan Login")
-    with st.form("login"):
-        u, p = st.text_input("User"), st.text_input("Pass", type="password")
-        if st.form_submit_button("Login"):
-            creds = {"Tarangan": "Tarangan@0103", "Sales": "Sales@2026", "GRE": "Gre@2026", "Manager": "Manager@2026"}
-            if u in creds and p == creds[u]: st.session_state.authenticated, st.session_state.role = True, u; st.rerun()
-else:
-    with st.sidebar:
-        st.title(f"Role: {st.session_state.role}")
-        if st.button("🔄 Refresh System"): st.rerun()
-        if st.button("🚪 Logout"): st.session_state.authenticated = False; st.rerun()
-
     # --- 6. LOGIN SYSTEM ---
 if 'authenticated' not in st.session_state: 
     st.session_state.authenticated = False
