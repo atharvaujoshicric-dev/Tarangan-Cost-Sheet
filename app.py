@@ -137,10 +137,74 @@ else:
         if st.button("🔄 Refresh System"): st.rerun()
         if st.button("🚪 Logout"): st.session_state.authenticated = False; st.rerun()
 
-    File "/mount/src/tarangan-cost-sheet/app.py", line 141
-      elif st.session_state.role == "GRE":
-      ^
-SyntaxError: invalid syntax
+    # --- 6. LOGIN SYSTEM ---
+if 'authenticated' not in st.session_state: 
+    st.session_state.authenticated = False
+
+if not st.session_state.authenticated:
+    st.title("🔐 Tarangan Login")
+    u = st.text_input("Username")
+    p = st.text_input("Password", type="password")
+    if st.button("Login"):
+        # CHECK THIS LINE FOR CLOSING BRACKETS )
+        creds = {"Tarangan": "Tarangan@0103", "Sales": "Sales@2026", "GRE": "Gre@2026", "Manager": "Manager@2026"}
+        
+        if u in creds and p == creds[u]:
+            st.session_state.authenticated, st.session_state.role, st.session_state.user_id = True, u, u
+            st.rerun()
+        else: 
+            st.error("Invalid credentials.")
+
+# This "else" belongs to "if not st.session_state.authenticated"
+else:
+    if st.sidebar.button("Logout"): 
+        st.session_state.authenticated = False
+        st.rerun()
+
+    # --- GRE DASHBOARD (Line 140/141 starts here) ---
+    if st.session_state.role == "GRE":  # Use 'if' here, not 'elif' if it's the first role check
+        st.title("📝 Stage 1: GRE Entry")
+        
+        # Load database from Google Sheets
+        df_master = load_data()
+        
+        # Security: Prevent duplicates
+        names_in_waiting = [c.upper() for c in storage.get("waiting_customers", [])]
+        names_in_cabins = [str(v).upper() for v in storage.get("booths", {}).values() if v is not None]
+        all_active_names = names_in_waiting + names_in_cabins
+
+        col_left, col_right = st.columns(2)
+
+        with col_left:
+            st.subheader("📋 Database List")
+            if 'Customer Name' in df_master.columns:
+                db_list = df_master['Customer Name'].dropna().unique().tolist()
+                # Exclude people already in the waiting list or cabins
+                filtered_db = [cust for cust in db_list if cust.upper() not in all_active_names]
+                
+                selected_cust = st.selectbox("Search Customer:", ["-- Select --"] + sorted(filtered_db))
+                if st.button("Add Selected"):
+                    if selected_cust != "-- Select --":
+                        storage["waiting_customers"].append(selected_cust)
+                        st.success(f"Added {selected_cust}")
+                        st.rerun()
+
+        with col_right:
+            st.subheader("🚶 Walk-in")
+            with st.form("walkin_form", clear_on_submit=True):
+                new_name = st.text_input("Customer Name").strip()
+                if st.form_submit_button("Add Walk-in"):
+                    if new_name:
+                        if new_name.upper() in all_active_names:
+                            st.warning("Customer already exists in the list/cabin!")
+                        else:
+                            storage["waiting_customers"].append(new_name)
+                            st.success(f"Added {new_name}")
+                            st.rerun()
+
+        st.divider()
+        st.subheader("📊 Live Waiting List")
+        # Display list...
     # --- MANAGER DASHBOARD ---
     elif st.session_state.role == "Manager":
         st.title("👔 Manager Assignment")
