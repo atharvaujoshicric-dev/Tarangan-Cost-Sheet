@@ -166,7 +166,7 @@ def release_unit_callback(unit_to_release):
     if unit_to_release in storage["locks"]: del storage["locks"][unit_to_release]
     st.session_state.search_id_input = ""
 
-# --- 6. LOGIN SYSTEM ---
+# --- 6. LOGIN ---
 if 'authenticated' not in st.session_state: st.session_state.authenticated = False
 
 if not st.session_state.authenticated:
@@ -181,7 +181,7 @@ if not st.session_state.authenticated:
 else:
     if st.sidebar.button("Logout"): st.session_state.authenticated = False; st.rerun()
 
-    # --- GRE DASHBOARD ---
+    # --- GRE ---
     if st.session_state.role == "GRE":
         st.title("📝 Stage 1: GRE Entry")
         with st.form("gre"):
@@ -189,10 +189,10 @@ else:
             if st.form_submit_button("Submit"):
                 if name and name.upper() not in [c.upper() for c in storage["waiting_customers"]]:
                     storage["waiting_customers"].append(name)
-                    st.success(f"Added {name} to list.")
+                    st.success(f"Added {name}")
                 else: st.warning("Name duplicate or empty.")
 
-    # --- MANAGER DASHBOARD ---
+    # --- MANAGER ---
     elif st.session_state.role == "Manager":
         st.title("👔 Stage 2: Manager Assignment")
         col1, col2 = st.columns(2)
@@ -222,27 +222,30 @@ else:
             st.success(f"Serving: {cust_name}")
             inventory = load_data()
             
-            # --- HOT SELLING LOGIC (Exclude Sold Units) ---
-            # Filter hits to only include units that are NOT sold
+            # Hot Selling Logic (Exclude Sold)
             available_hits = {u: c for u, c in storage["unit_hits"].items() if u not in storage["sold_units"]}
             hot_list = [u for u, c in sorted(available_hits.items(), key=lambda x: x[1], reverse=True)[:3]]
             
             if hot_list:
-                st.subheader("🔥 Top 3 Hottest Selling Units (Available)")
+                st.subheader("⚫ Top 3 Hottest Selling Units")
                 h_cols = st.columns(3)
                 for i, uid in enumerate(hot_list):
                     with h_cols[i]:
                         st.markdown(f"""
-                        <div style="background-color: #FFF3E0; border: 2px solid #FF9800; border-radius: 10px; padding: 10px; text-align: center;">
-                            <h4 style="color: #E65100; margin: 0;"># {i+1} HOT SELLING</h4>
-                            <p style="font-size: 20px; font-weight: bold; margin: 5px 0;">Unit {uid}</p>
-                            <span style="font-size: 12px; color: #666;">Views: {available_hits[uid]}</span>
+                        <div style="background-color: #000000; border: 2px solid #333333; border-radius: 10px; padding: 15px; text-align: center; color: white;">
+                            <h4 style="color: #FFFFFF; margin: 0;">🔥 HOT SELLING # {i+1}</h4>
+                            <p style="font-size: 24px; font-weight: bold; margin: 10px 0;">Unit {uid}</p>
+                            <span style="font-size: 14px; color: #BBBBBB;">Views: {available_hits[uid]}</span>
                         </div>
                         """, unsafe_allow_html=True)
+                        if st.button(f"Select Unit {uid}", key=f"hot_sel_{uid}"):
+                            st.session_state.search_id_input = uid
+                            storage["unit_hits"][uid] = storage["unit_hits"].get(uid, 0) + 1
+                            st.rerun()
 
             search_id = st.session_state.get("search_id_input", "").upper()
             
-            # Inventory Grid (6 units per line)
+            # Inventory Grid
             with st.expander("📁 Inventory Selection Grid", expanded=(search_id == "")):
                 grid_cols = st.columns(6)
                 for idx, row in inventory.iterrows():
@@ -258,9 +261,9 @@ else:
                         elif is_busy:
                             lbl, clr = f"🔴 BUSY", True
                         elif is_hot:
-                            lbl, clr = f"🟠 {uid}", False
+                            lbl, clr = f"⚫ {uid}", False # Black for Hot
                         else:
-                            lbl, clr = f"🟡 {uid}", False
+                            lbl, clr = f"🟡 {uid}", False # Yellow default
                         
                         if st.button(lbl, key=f"btn_{uid}", use_container_width=True, disabled=clr or is_restricted):
                             st.session_state.search_id_input = uid
