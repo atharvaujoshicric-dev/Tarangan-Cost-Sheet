@@ -343,109 +343,89 @@ else:
 
     # --- ADMIN DASHBOARD ---
     # --- ADMIN DASHBOARD ---
+    # --- ADMIN ---
     elif st.session_state.role == "Tarangan":
-        st.title("🛠️ Admin Master Control")
+        st.title("🛠️ Admin Dashboard")
         if st.sidebar.button("🔄 Global Refresh"): st.rerun()
-
-        # Added t4 for Reports
-        t1, t2, t3, t4 = st.tabs(["Pending Requests", "Manage Unblocks", "System Management", "📊 Full Sales Report"])
-
+        
+        # Tabs for better organization
+        t1, t2, t3, t4 = st.tabs(["📊 Sales Report", "🕵️ Activity Tracker", "📦 Inventory Management", "🚨 System Reset"])
+        
         with t1:
-            st.subheader("Unblock Requests")
-            if storage["pending_requests"]:
-                for cab, unit in list(storage["pending_requests"].items()):
-                    col_a, col_b = st.columns([3, 1])
-                    col_a.write(f"**Cabin {cab}** requests unit **{unit}**")
-                    if col_b.button(f"Approve {unit}", key=f"app_{cab}"):
-                        if cab not in storage["approved_units"]: storage["approved_units"][cab] = []
-                        if unit not in storage["approved_units"][cab]:
-                            storage["approved_units"][cab].append(unit)
-                            storage["unblock_counts"][cab] = storage["unblock_counts"].get(cab, 0) + 1
-                        del storage["pending_requests"][cab]
-                        st.success(f"Approved {unit} for Cabin {cab}")
-                        st.rerun()
-            else:
-                st.info("No pending unblock requests.")
-
-        with t2:
-            st.subheader("Revoke Unblocked Units")
-            active_unblocks = False
-            for cab, units in storage["approved_units"].items():
-                for u in units:
-                    if u not in storage["sold_units"]:
-                        active_unblocks = True
-                        c1, c2 = st.columns([2, 1])
-                        c1.write(f"Cabin {cab} has access to **{u}**")
-                        if c2.button(f"Revoke {u}", key=f"rev_{cab}_{u}"):
-                            storage["approved_units"][cab].remove(u)
-                            st.rerun()
-            if not active_unblocks:
-                st.info("No active unblocked units to revoke.")
-
-        with t3:
-            st.subheader("System Control")
-            if storage["sold_units"]:
-                u_rel = st.selectbox("Select Unit to Unlock:", sorted(list(storage["sold_units"])))
-                if st.button("🔓 Release Sold Unit"):
-                    storage["sold_units"].remove(u_rel)
-                    st.success(f"Unit {u_rel} is now available again.")
-                    st.rerun()
-            
-            st.divider()
-            if st.button("⚠️ Clear All Activity Logs"):
-                storage["activity_log"] = []
-                st.success("Logs cleared.")
-
-        with t4:
-            st.subheader("📈 Full Project Sales Report")
-            
+            st.subheader("Project Sales Performance")
             if storage["download_history"]:
-                # Create a copy so we don't break the original storage during cleaning
                 df_report = pd.DataFrame(storage["download_history"])
 
-                # --- CLEAN DATA FOR CALCULATION ---
-                # Convert columns to numeric, forcing errors to 0 to prevent the ValueError
-                if "Total Package" in df_report.columns:
-                    df_report["Total Package"] = pd.to_numeric(df_report["Total Package"], errors='coerce').fillna(0)
-                if "Discount Given" in df_report.columns:
-                    df_report["Discount Given"] = pd.to_numeric(df_report["Discount Given"], errors='coerce').fillna(0)
+                # --- 1. DATA CLEANING (Prevents ValueErrors) ---
+                # This ensures numeric columns are actually numbers for the math below
+                num_cols = ["Agreement Value", "GST", "Stamp Duty", "Registration", "Discount", "Total Package"]
+                for col in num_cols:
+                    if col in df_report.columns:
+                        df_report[col] = pd.to_numeric(df_report[col], errors='coerce').fillna(0)
 
-                # --- Metrics Summary ---
+                # --- 2. SUMMARY METRICS ---
                 m1, m2, m3 = st.columns(3)
-                m1.metric("Units Sold", len(df_report))
+                total_rev = int(df_report["Total Package"].sum())
+                total_disc = int(df_report["Discount"].sum())
                 
-                t_rev = df_report["Total Package"].sum()
-                t_disc = df_report["Discount Given"].sum()
-                
-                # Using int() here is now safe because t_rev is a clean float/int
-                m2.metric("Total Revenue", f"₹ {format_indian_currency(t_rev)}")
-                m3.metric("Total Discounts", f"₹ {format_indian_currency(t_disc)}")
-                
-                st.divider()
-                st.write("### All Transactions")
-                st.dataframe(df_report, use_container_width=True)
-                
-                # CSV Export
-                csv = df_report.to_csv(index=False).encode('utf-8')
-                st.download_button("📥 Download Excel (CSV)", csv, "Full_Sales_Report.csv", "text/csv")
-            else:
-                st.info("No sales recorded yet.")
+                m1.metric("Total Units Sold", len(df_report))
+                m2.metric("Total Revenue", f"₹ {format_indian_currency(total_rev)}")
+                m3.metric("Total Discounts Given", f"₹ {format_indian_currency(total_disc)}")
 
-        # --- MASTER RESET SECTION ---
-        st.write("---")
-        with st.expander("🚨 Danger Zone (System Reset)"):
-            reset_pass = st.text_input("Enter Master Reset Password:", type="password")
-            if st.button("💣 WIPE ALL DATA"):
-                if reset_pass == "Reset@2026":
-                    # Clear all global storage
-                    storage["sold_units"] = set()
-                    storage["download_history"] = []
-                    storage["booths"] = {letter: None for letter in "ABCDEFGHIJ"}
-                    storage["pending_requests"] = {}
-                    storage["approved_units"] = {letter: [] for letter in "ABCDEFGHIJ"}
-                    storage["unblock_counts"] = {letter: 0 for letter in "ABCDEFGHIJ"}
-                    storage["waiting_customers"] = []
-                    st.success("System fully reset. Refreshing...")
+                st.divider()
+
+                # --- 3. FILTER BY SALES PERSON ---
+                all_sales = ["All"] + sorted(df_report["Sales Person"].unique().tolist())
+                selected_sales = st.selectbox("Filter by Sales Person:", all_sales)
+                
+                display_df = df_report
+                if selected_sales != "All":
+                    display_df = df_report[df_report["Sales Person"] == selected_sales]
+
+                st.write(f"Showing transactions for: **{selected_sales}**")
+                st.dataframe(display_df, use_container_width=True)
+                
+                # --- 4. EXPORT ---
+                csv = display_df.to_csv(index=False).encode('utf-8')
+                st.download_button("📥 Export Current View to CSV", csv, "Tarangan_Sales_Report.csv", "text/csv")
+            else:
+                st.info("No sales data available yet.")
+
+        with t2:
+            st.subheader("Live Activity Log")
+            if storage["activity_log"]: 
+                st.dataframe(pd.DataFrame(storage["activity_log"]), use_container_width=True)
+            else:
+                st.info("No activity logged.")
+
+        with t3:
+            st.subheader("Inventory Management")
+            if storage["sold_units"]:
+                unit_to_unblock = st.selectbox("Select Sold Unit to Restore:", sorted(list(storage["sold_units"])))
+                if st.button("🔓 Restore Unit to Inventory"):
+                    storage["sold_units"].remove(unit_to_unblock)
+                    log_activity(st.session_state.user_id, "UNBLOCK", f"Admin restored unit {unit_to_unblock}")
+                    st.success(f"Unit {unit_to_unblock} is now available for sale.")
+                    st.rerun()
+            else:
+                st.info("No units are currently marked as SOLD.")
+
+        with t4:
+            st.subheader("System Reset")
+            st.warning("This will erase all sales data, customer lists, and activity logs.")
+            reset_pass = st.text_input("Enter Reset Password:", type="password", key="admin_reset_pw")
+            if st.button("⚠️ PERFORM FULL SYSTEM RESET", type="primary"):
+                if reset_pass == "Atharva Joshi":
+                    # Deep clear of all storage keys
+                    for key in storage.keys():
+                        if isinstance(storage[key], list): storage[key] = []
+                        elif isinstance(storage[key], dict): 
+                            if key == "booths": storage[key] = {letter: None for letter in "ABCDEFGHIJ"}
+                            else: storage[key] = {}
+                        elif isinstance(storage[key], set): storage[key] = set()
+                    
+                    st.cache_resource.clear()
+                    st.success("System Reset Complete.")
                     st.rerun()
                 else:
-                    st.error("Incorrect Password")
+                    st.error("Incorrect Password.")
