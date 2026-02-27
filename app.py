@@ -285,35 +285,35 @@ else:
                 # ... (rest of the cost sheet display as provided previously)
                 st.button("❌ Close / Release", on_click=lambda: st.session_state.update({"search_id_input": ""}))
 
-                    # --- RESTORED ORIGINAL MONOSPACE COST SHEET ---
-                    st.markdown(f"""
-                        <div style="background:white; padding:30px; border:2px solid black; color:black; font-family:monospace;">
-                            <div style="text-align:right;">Date: {ist_now.strftime("%d/%m/%Y")}</div>
-                            <h2 style="text-align:center; border-bottom:2px solid black;">TARANGAN</h2>
-                            <p><b>Customer:</b> {cust_name}</p>
-                            <p><b>Unit:</b> {search_id} | <b>Floor:</b> {row.get('Floor','N/A')} | <b>Carpet:</b> {row.get('CARPET','N/A')} sqft</p>
-                            <p><b>Parking Status:</b> {park_loc_label}</p>
-                            <div style="display:flex; justify-content:space-between; border-bottom:1px dotted #888; padding:5px 0;"><span>Agreement</span><span>Rs. {format_indian_currency(res['Final Agreement'])}</span></div>
-                            <div style="display:flex; justify-content:space-between; border-bottom:1px dotted #888; padding:5px 0;"><span>Stamp Duty ({int(res['SD_Pct'])}%)</span><span>Rs. {format_indian_currency(res['Stamp Duty'])}</span></div>
-                            <div style="display:flex; justify-content:space-between; border-bottom:1px dotted #888; padding:5px 0;"><span>GST ({int(res['GST_Pct'])}%)</span><span>Rs. {format_indian_currency(res['GST'])}</span></div>
-                            <div style="display:flex; justify-content:space-between; border-bottom:1px dotted #888; padding:5px 0;"><span>Registration</span><span>Rs. {format_indian_currency(res['Registration'])}</span></div>
-                            <div style="display:flex; justify-content:space-between; font-weight:bold; font-size:1.2em; border-top:2px solid black; margin-top:10px; padding:10px 0;"><span>TOTAL</span><span>Rs. {format_indian_currency(res['Total'])}</span></div>
-                            <div style="font-style:italic; margin-top:5px;">Rupees {num2words(res['Total'], lang='en_IN').title().replace(",","")} Only</div>
-                            <div style="color:red; font-weight:bold; margin-top:10px;">Total Discount Availed: Rs. {format_indian_currency(res['Combined_Discount'])}</div>
-                        </div>
-                    """, unsafe_allow_html=True)
-                    
-                    st.write("")
-                    col_act1, col_act2 = st.columns(2)
-                    if col_act1.button("✅ Finalize & Send"):
-                        pdf_bytes = create_pdf(search_id, row.get('Floor','N/A'), row.get('CARPET','N/A'), res, cust_name, "28/02/2026", use_p)
-                        details = {"Unit No": search_id, "Customer Name": cust_name, "Total": format_indian_currency(res['Total'])}
-                        if send_email(RECEIVER_EMAIL, pdf_bytes, f"{search_id}.pdf", details):
-                            storage["sold_units"].add(search_id); storage["download_history"].append(details)
-                            reset_cabin_session(my_cabin); st.session_state.search_id_input = ""; st.rerun()
-                    
-                    if col_act2.button("❌ Close / Release"):
-                        st.session_state.search_id_input = ""; st.rerun()
+                # --- RESTORED ORIGINAL MONOSPACE COST SHEET ---
+                st.markdown(f"""
+                    <div style="background:white; padding:30px; border:2px solid black; color:black; font-family:monospace;">
+                        <div style="text-align:right;">Date: {ist_now.strftime("%d/%m/%Y")}</div>
+                        <h2 style="text-align:center; border-bottom:2px solid black;">TARANGAN</h2>
+                        <p><b>Customer:</b> {cust_name}</p>
+                        <p><b>Unit:</b> {search_id} | <b>Floor:</b> {row.get('Floor','N/A')} | <b>Carpet:</b> {row.get('CARPET','N/A')} sqft</p>
+                        <p><b>Parking Status:</b> {park_loc_label}</p>
+                        <div style="display:flex; justify-content:space-between; border-bottom:1px dotted #888; padding:5px 0;"><span>Agreement</span><span>Rs. {format_indian_currency(res['Final Agreement'])}</span></div>
+                        <div style="display:flex; justify-content:space-between; border-bottom:1px dotted #888; padding:5px 0;"><span>Stamp Duty ({int(res['SD_Pct'])}%)</span><span>Rs. {format_indian_currency(res['Stamp Duty'])}</span></div>
+                        <div style="display:flex; justify-content:space-between; border-bottom:1px dotted #888; padding:5px 0;"><span>GST ({int(res['GST_Pct'])}%)</span><span>Rs. {format_indian_currency(res['GST'])}</span></div>
+                        <div style="display:flex; justify-content:space-between; border-bottom:1px dotted #888; padding:5px 0;"><span>Registration</span><span>Rs. {format_indian_currency(res['Registration'])}</span></div>
+                        <div style="display:flex; justify-content:space-between; font-weight:bold; font-size:1.2em; border-top:2px solid black; margin-top:10px; padding:10px 0;"><span>TOTAL</span><span>Rs. {format_indian_currency(res['Total'])}</span></div>
+                        <div style="font-style:italic; margin-top:5px;">Rupees {num2words(res['Total'], lang='en_IN').title().replace(",","")} Only</div>
+                        <div style="color:red; font-weight:bold; margin-top:10px;">Total Discount Availed: Rs. {format_indian_currency(res['Combined_Discount'])}</div>
+                    </div>
+                """, unsafe_allow_html=True)
+                
+                st.write("")
+                col_act1, col_act2 = st.columns(2)
+                if col_act1.button("✅ Finalize & Send"):
+                    pdf_bytes = create_pdf(search_id, row.get('Floor','N/A'), row.get('CARPET','N/A'), res, cust_name, "28/02/2026", use_p)
+                    details = {"Unit No": search_id, "Customer Name": cust_name, "Total": format_indian_currency(res['Total'])}
+                    if send_email(RECEIVER_EMAIL, pdf_bytes, f"{search_id}.pdf", details):
+                        storage["sold_units"].add(search_id); storage["download_history"].append(details)
+                        reset_cabin_session(my_cabin); st.session_state.search_id_input = ""; st.rerun()
+                
+                if col_act2.button("❌ Close / Release"):
+                    st.session_state.search_id_input = ""; st.rerun()
 
     # --- ADMIN DASHBOARD ---
     elif st.session_state.role == "Tarangan":
