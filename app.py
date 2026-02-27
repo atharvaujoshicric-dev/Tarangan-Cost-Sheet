@@ -251,7 +251,7 @@ else:
                 for idx, row in inventory.iterrows():
                     uid = str(row['ID']).upper()
                     is_sold, is_busy = uid in storage["sold_units"], uid in storage["locks"] and storage["locks"][uid] != st.runtime.scriptrunner.get_script_run_ctx().session_id
-                    is_hot, is_res = uid in hot_list, uid in ["Refuge", "Refuge"]
+                    is_hot, is_res = uid in hot_list, uid in ["A-705", "A-1205"]
                     with grid_cols[idx % 6]:
                         if is_sold: lbl, clr = f"🟢 {uid}", True
                         elif is_busy: lbl, clr = f"🔴 BUSY", True
