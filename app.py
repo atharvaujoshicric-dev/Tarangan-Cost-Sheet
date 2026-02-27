@@ -15,13 +15,13 @@ except ImportError:
 # --- 1. SHARED STORAGE ---
 @st.cache_resource
 def get_global_storage():
-    # Added 'booths' for Stage 2/3 and 'hits' for Hot Selling
     return {
         "locks": {}, 
         "sold_units": set(), 
         "download_history": [],
-        "booths": {letter: None for letter in "ABCDEFGHIJ"}, # Stage 2 storage
-        "unit_hits": {} # For Hot Selling tracking
+        "booths": {letter: None for letter in "ABCDEFGHIJ"},
+        "unit_hits": {},
+        "waiting_customers": []
     }
 
 storage = get_global_storage()
@@ -32,7 +32,7 @@ TAB_NAME = "Inventory List"
 encoded_tab_name = urllib.parse.quote(TAB_NAME)
 CSV_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet={encoded_tab_name}"
 
-# --- 3. BACKEND LOGIC (Existing Functions preserved) ---
+# --- 3. BACKEND LOGIC ---
 def format_indian_currency(number):
     s = str(int(number))
     if len(s) <= 3: return s
@@ -64,7 +64,7 @@ def calculate_negotiation(initial_agreement, pkg_discount=0, park_discount=0, us
         "Combined_Discount": int(pkg_discount + park_discount)
     }
 
-# --- 4. PDF GENERATION (Preserved) ---
+# --- 4. PDF GENERATION ---
 def create_pdf(unit_id, floor, carpet, costs, cust_name, date_str, use_parking):
     pdf = FPDF()
     copies = ["Customer's Copy", "Sales Copy"]
@@ -119,7 +119,7 @@ def create_pdf(unit_id, floor, carpet, costs, cust_name, date_str, use_parking):
     return pdf.output(dest='S').encode('latin-1')
 
 # --- 5. UI SETUP ---
-st.set_page_config(page_title="Tarangan Dashboard", layout="wide") # Changed to wide for grid
+st.set_page_config(page_title="Tarangan Dashboard", layout="wide")
 
 @st.cache_data(ttl=2)
 def load_data():
@@ -127,7 +127,6 @@ def load_data():
     df.columns = [str(c).strip() for c in df.columns]
     return df
 
-# --- 6. POP-UP DIALOG & CALLBACKS (Preserved) ---
 @st.dialog("Booking Confirmation")
 def download_dialog(unit_id, floor, carpet, costs, cust_name, date_str, use_parking, ist_log_time):
     st.write(f"Confirming booking for **Unit {unit_id}**")
@@ -149,152 +148,126 @@ def release_unit_callback(unit_to_release):
     if unit_to_release in storage["locks"]:
         del storage["locks"][unit_to_release]
 
-# --- 7. LOGIN ---
+# --- 6. LOGIN SYSTEM ---
 if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
 
 if not st.session_state.authenticated:
     st.title("🔐 Tarangan Login")
-    u, p = st.text_input("Username"), st.text_input("Password", type="password")
+    u = st.text_input("Username")
+    p = st.text_input("Password", type="password")
     if st.button("Login"):
-        if (u == "Tarangan" and p == "Tarangan@0103") or (u.lower().startswith("user") and p == "Sales@2026"):
-            st.session_state.authenticated, st.session_state.role, st.session_state.user_id = True, ("admin" if u == "Tarangan" else "user"), u
+        # Strict Credentials Check
+        creds = {
+            "Tarangan": {"pass": "Tarangan@0103", "role": "admin"},
+            "Sales": {"pass": "Sales@2026", "role": "sales"},
+            "GRE": {"pass": "Gre@2026", "role": "gre"},
+            "Manager": {"pass": "Manager@2026", "role": "manager"}
+        }
+        if u in creds and p == creds[u]["pass"]:
+            st.session_state.authenticated = True
+            st.session_state.role = creds[u]["role"]
+            st.session_state.user_id = u
             st.rerun()
+        else:
+            st.error("Invalid credentials.")
 else:
-    # Sidebar Role Selection for Stage logic
-    st.sidebar.title(f"User: {st.session_state.user_id}")
-    app_mode = st.sidebar.radio("Navigate to Stage:", ["Stage 1: GRE", "Stage 2: Manager", "Stage 3: Sales Portal", "Admin Records"])
-    
     if st.sidebar.button("Logout"):
         st.session_state.authenticated = False; st.rerun()
 
     # --- STAGE 1: GRE ---
-    if app_mode == "Stage 1: GRE":
+    if st.session_state.role == "gre":
         st.title("📝 Stage 1: GRE Entry")
-        with st.form("gre_form"):
-            c_name = st.text_input("Customer Name")
-            if st.form_submit_button("Submit to Waiting List"):
-                if "waiting_customers" not in storage: storage["waiting_customers"] = []
-                storage["waiting_customers"].append(c_name)
-                st.success(f"Added {c_name} to queue.")
+        with st.form("gre_entry"):
+            name = st.text_input("Customer Name")
+            if st.form_submit_button("Add to Queue"):
+                storage["waiting_customers"].append(name)
+                st.success(f"Added {name} to waiting list.")
 
     # --- STAGE 2: MANAGER ---
-    elif app_mode == "Stage 2: Manager":
+    elif st.session_state.role == "manager":
         st.title("👔 Stage 2: Manager Assignment")
-        if "waiting_customers" in storage and storage["waiting_customers"]:
-            selected_cust = st.selectbox("Assign Customer:", storage["waiting_customers"])
+        if storage["waiting_customers"]:
+            sel_cust = st.selectbox("Select Customer:", storage["waiting_customers"])
             free_booths = [b for b, v in storage["booths"].items() if v is None]
-            selected_booth = st.selectbox("To Cabin:", free_booths)
-            
-            if st.button("Assign to Cabin"):
-                storage["booths"][selected_booth] = selected_cust
-                storage["waiting_customers"].remove(selected_cust)
-                st.success(f"Assigned {selected_cust} to Cabin {selected_booth}")
+            sel_booth = st.selectbox("Assign to Cabin:", free_booths)
+            if st.button("Assign"):
+                storage["booths"][sel_booth] = sel_cust
+                storage["waiting_customers"].remove(sel_cust)
                 st.rerun()
         else:
-            st.info("No customers in waiting list.")
-        
-        st.write("### Current Cabin Status")
-        st.table([{"Cabin": k, "Customer": v if v else "Empty"} for k, v in storage["booths"].items()])
+            st.info("No customers waiting.")
+        st.write("---")
+        st.subheader("Cabin Status")
+        st.table([{"Cabin": k, "Customer": v if v else "FREE"} for k, v in storage["booths"].items()])
         if st.button("Clear All Cabins"):
             storage["booths"] = {letter: None for letter in "ABCDEFGHIJ"}
             st.rerun()
 
-    # --- STAGE 3: SALES PORTAL ---
-    elif app_mode == "Stage 3: Sales Portal":
+    # --- STAGE 3: SALES ---
+    elif st.session_state.role == "sales":
         st.title("🏙️ Stage 3: Sales Portal")
+        my_cabin = st.selectbox("Your Cabin:", list("ABCDEFGHIJ"))
+        cust_name = storage["booths"].get(my_cabin)
         
-        # Cabin Selection (Auto-fetches customer)
-        my_cabin = st.selectbox("Select Your Cabin:", list(storage["booths"].keys()))
-        current_customer = storage["booths"].get(my_cabin, "Unknown")
-        st.info(f"Serving Customer: **{current_customer}** at Cabin **{my_cabin}**")
-
-        inventory = load_data()
-        
-        # --- HOT SELLING LOGIC ---
-        hot_units = sorted(storage["unit_hits"].items(), key=lambda x: x[1], reverse=True)[:3]
-        if hot_units:
-            st.subheader("🔥 Hot Selling Units")
-            hc1, hc2, hc3 = st.columns(3)
-            for i, (uid, hits) in enumerate(hot_units):
-                with [hc1, hc2, hc3][i]:
-                    st.error(f"Unit {uid} ({hits} Views)")
-
-        # --- GRID VIEW ---
-        st.subheader("Inventory Grid")
-        cols = st.columns(6)
-        for idx, row in inventory.iterrows():
-            uid = str(row['ID'])
-            is_sold = uid in storage["sold_units"]
-            # Check if someone else is viewing this flat
-            is_busy = uid in storage["locks"] and storage["locks"][uid] != st.runtime.scriptrunner.get_script_run_ctx().session_id
+        if not cust_name:
+            st.warning(f"No customer assigned to Cabin {my_cabin} yet.")
+        else:
+            st.success(f"Serving: {cust_name}")
+            inventory = load_data()
             
-            with cols[idx % 6]:
-                if is_sold:
-                    st.button(f"🔴 {uid}\nSOLD", key=f"btn_{uid}", disabled=True, use_container_width=True)
-                elif is_busy:
-                    st.button(f"🟡 {uid}\nBUSY", key=f"btn_{uid}", disabled=True, use_container_width=True)
-                else:
-                    if st.button(f"🟢 {uid}\nFREE", key=f"btn_{uid}", use_container_width=True):
-                        st.session_state.search_id_input = uid
-                        # Increment Hits for Hot Selling
-                        storage["unit_hits"][uid] = storage["unit_hits"].get(uid, 0) + 1
-                        st.rerun()
+            # Hot Selling Section
+            hot = sorted(storage["unit_hits"].items(), key=lambda x: x[1], reverse=True)[:3]
+            if hot:
+                st.markdown("### 🔥 Hot Selling")
+                hc = st.columns(3)
+                for i, (uid, count) in enumerate(hot):
+                    hc[i].error(f"Unit {uid} ({count} Views)")
 
-        # --- SELECTION & CALCULATION ---
-        search_id = st.text_input("🔍 Selected Flat ID:", key="search_id_input").strip().upper()
-        ist_now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=5, minutes=30)))
-        today_str, today_full_log = ist_now.strftime("%d/%m/%Y"), ist_now.strftime("%d/%m/%Y %H:%M:%S")
+            # Grid View
+            st.subheader("Inventory Grid")
+            grid_cols = st.columns(6)
+            for idx, row in inventory.iterrows():
+                uid = str(row['ID'])
+                is_sold = uid in storage["sold_units"]
+                is_busy = uid in storage["locks"] and storage["locks"][uid] != st.runtime.scriptrunner.get_script_run_ctx().session_id
+                
+                with grid_cols[idx % 6]:
+                    if is_sold:
+                        st.button(f"🔴 {uid}", key=f"btn_{uid}", disabled=True, use_container_width=True)
+                    elif is_busy:
+                        st.button(f"🟡 BUSY", key=f"btn_{uid}", disabled=True, use_container_width=True)
+                    else:
+                        if st.button(f"🟢 {uid}", key=f"btn_{uid}", use_container_width=True):
+                            st.session_state.search_id_input = uid
+                            storage["unit_hits"][uid] = storage["unit_hits"].get(uid, 0) + 1
+                            st.rerun()
 
-        if len(search_id) > 2:
-            if search_id in storage["sold_units"]: st.error("Unit just got SOLD."); st.stop()
-            if search_id in storage["locks"] and storage["locks"][search_id] != st.runtime.scriptrunner.get_script_run_ctx().session_id:
-                st.warning("⚠️ This unit is currently being viewed by another salesperson."); st.stop()
-            
-            # Lock the unit to this session
-            storage["locks"][search_id] = st.runtime.scriptrunner.get_script_run_ctx().session_id
-            
-            match = inventory[inventory['ID'].astype(str).str.upper() == search_id]
-            if not match.empty:
-                row = match.iloc[0]
-                # Calculation UI (Preserved)
-                base_agr = clean_numeric(row.get('Agreement Value', 0))
-                c1, c2, c3 = st.columns(3)
-                with c1:
-                    use_d = st.checkbox("Discount")
-                    d_val = st.number_input("Amt:", value=0, step=1000) if use_d else 0
-                with c2:
-                    use_p = st.checkbox("Parking")
-                    p_d_val = st.number_input("Park Disc:", value=0, step=1000) if use_p else 0
-                with c3: is_f = st.checkbox("Female")
+            # Selection Logic
+            search_id = st.text_input("🔍 Selected Flat:", key="search_id_input").strip().upper()
+            if len(search_id) > 2:
+                if search_id in storage["locks"] and storage["locks"][search_id] != st.runtime.scriptrunner.get_script_run_ctx().session_id:
+                    st.error("Unit Busy"); st.stop()
                 
-                res = calculate_negotiation(base_agr, d_val, p_d_val, use_p, is_f)
-                
-                # HTML Visual (Preserved)
-                st.markdown(f"""
-                    <div style="background:white; padding:20px; border:2px solid black; color:black;">
-                        <h2 style="text-align:center;">TARANGAN COST SHEET</h2>
-                        <p><b>Customer:</b> {current_customer}</p>
-                        <p><b>Unit:</b> {search_id} | <b>Floor:</b> {row.get('Floor','N/A')}</p>
-                        <hr>
-                        <p>Total: Rs. {format_indian_currency(res['Total'])}</p>
-                    </div>
-                """, unsafe_allow_html=True)
-                
-                col_d, col_r = st.columns(2)
-                with col_d:
+                storage["locks"][search_id] = st.runtime.scriptrunner.get_script_run_ctx().session_id
+                match = inventory[inventory['ID'].astype(str).str.upper() == search_id]
+                if not match.empty:
+                    row = match.iloc[0]
+                    res = calculate_negotiation(clean_numeric(row.get('Agreement Value', 0)))
+                    
+                    st.markdown(f"**Agreement:** Rs. {format_indian_currency(res['Final Agreement'])}")
+                    st.markdown(f"**Total All-In:** Rs. {format_indian_currency(res['Total'])}")
+                    
+                    ist_now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=5, minutes=30)))
                     if st.button("📥 Download & Block"):
-                        download_dialog(search_id, row.get('Floor','N/A'), row.get('CARPET','N/A'), res, current_customer, today_str, use_p, today_full_log)
-                with col_r:
-                    if st.button("❌ Release Unit"):
-                        release_unit_callback(search_id)
-                        st.rerun()
+                        download_dialog(search_id, row.get('Floor','N/A'), row.get('CARPET','N/A'), res, cust_name, ist_now.strftime("%d/%m/%Y"), False, ist_now.strftime("%d/%m/%Y %H:%M:%S"))
+                    st.button("❌ Clear", on_click=release_unit_callback, args=(search_id,))
 
-    # --- ADMIN RECORDS ---
-    elif app_mode == "Admin Records" and st.session_state.role == "admin":
-        st.title("🛠️ Admin Records")
+    # --- ADMIN ---
+    elif st.session_state.role == "admin":
+        st.title("🛠️ Admin Dashboard")
         if storage["download_history"]:
-            st.dataframe(pd.DataFrame(storage["download_history"]))
-            if st.button("⚠️ Global Reset"):
-                storage["locks"].clear(); storage["sold_units"].clear(); storage["download_history"].clear(); storage["unit_hits"].clear()
-                st.rerun()
+            st.dataframe(pd.DataFrame(storage["download_history"]), use_container_width=True)
+        if st.button("⚠️ Full System Reset"):
+            storage["locks"].clear(); storage["sold_units"].clear(); storage["download_history"].clear(); storage["unit_hits"].clear(); storage["waiting_customers"].clear()
+            st.rerun()
