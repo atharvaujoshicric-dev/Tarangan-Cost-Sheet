@@ -21,7 +21,7 @@ def get_global_storage():
         "download_history": [],
         "booths": {letter: None for letter in "ABCDEFGHIJ"},
         "unit_hits": {},
-        "waiting_customers": []
+        "waiting_customers": [] # List for Stage 1 -> Stage 2
     }
 
 storage = get_global_storage()
@@ -157,7 +157,6 @@ if not st.session_state.authenticated:
     u = st.text_input("Username")
     p = st.text_input("Password", type="password")
     if st.button("Login"):
-        # Strict Credentials Check
         creds = {
             "Tarangan": {"pass": "Tarangan@0103", "role": "admin"},
             "Sales": {"pass": "Sales@2026", "role": "sales"},
@@ -179,10 +178,20 @@ else:
     if st.session_state.role == "gre":
         st.title("📝 Stage 1: GRE Entry")
         with st.form("gre_entry"):
-            name = st.text_input("Customer Name")
+            name = st.text_input("Customer Name").strip()
             if st.form_submit_button("Add to Queue"):
-                storage["waiting_customers"].append(name)
-                st.success(f"Added {name} to waiting list.")
+                if not name:
+                    st.error("Name cannot be empty.")
+                else:
+                    # DUPLICATE CHECK: Waiting list + Active Booths
+                    all_active_customers = [c.upper() for c in storage["waiting_customers"]] + \
+                                          [v.upper() for v in storage["booths"].values() if v]
+                    
+                    if name.upper() in all_active_customers:
+                        st.warning(f"Customer '{name}' is already in the system.")
+                    else:
+                        storage["waiting_customers"].append(name)
+                        st.success(f"Added {name} to waiting list.")
 
     # --- STAGE 2: MANAGER ---
     elif st.session_state.role == "manager":
@@ -200,9 +209,6 @@ else:
         st.write("---")
         st.subheader("Cabin Status")
         st.table([{"Cabin": k, "Customer": v if v else "FREE"} for k, v in storage["booths"].items()])
-        if st.button("Clear All Cabins"):
-            storage["booths"] = {letter: None for letter in "ABCDEFGHIJ"}
-            st.rerun()
 
     # --- STAGE 3: SALES ---
     elif st.session_state.role == "sales":
@@ -216,7 +222,6 @@ else:
             st.success(f"Serving: {cust_name}")
             inventory = load_data()
             
-            # Hot Selling Section
             hot = sorted(storage["unit_hits"].items(), key=lambda x: x[1], reverse=True)[:3]
             if hot:
                 st.markdown("### 🔥 Hot Selling")
@@ -224,7 +229,6 @@ else:
                 for i, (uid, count) in enumerate(hot):
                     hc[i].error(f"Unit {uid} ({count} Views)")
 
-            # Grid View
             st.subheader("Inventory Grid")
             grid_cols = st.columns(6)
             for idx, row in inventory.iterrows():
@@ -243,7 +247,6 @@ else:
                             storage["unit_hits"][uid] = storage["unit_hits"].get(uid, 0) + 1
                             st.rerun()
 
-            # Selection Logic
             search_id = st.text_input("🔍 Selected Flat:", key="search_id_input").strip().upper()
             if len(search_id) > 2:
                 if search_id in storage["locks"] and storage["locks"][search_id] != st.runtime.scriptrunner.get_script_run_ctx().session_id:
@@ -254,20 +257,50 @@ else:
                 if not match.empty:
                     row = match.iloc[0]
                     res = calculate_negotiation(clean_numeric(row.get('Agreement Value', 0)))
-                    
-                    st.markdown(f"**Agreement:** Rs. {format_indian_currency(res['Final Agreement'])}")
-                    st.markdown(f"**Total All-In:** Rs. {format_indian_currency(res['Total'])}")
+                    st.markdown(f"**Agreement:** Rs. {format_indian_currency(res['Final Agreement'])} | **Total:** Rs. {format_indian_currency(res['Total'])}")
                     
                     ist_now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=5, minutes=30)))
                     if st.button("📥 Download & Block"):
                         download_dialog(search_id, row.get('Floor','N/A'), row.get('CARPET','N/A'), res, cust_name, ist_now.strftime("%d/%m/%Y"), False, ist_now.strftime("%d/%m/%Y %H:%M:%S"))
                     st.button("❌ Clear", on_click=release_unit_callback, args=(search_id,))
 
-    # --- ADMIN ---
+    # --- ADMIN DASHBOARD ---
     elif st.session_state.role == "admin":
         st.title("🛠️ Admin Dashboard")
-        if storage["download_history"]:
-            st.dataframe(pd.DataFrame(storage["download_history"]), use_container_width=True)
-        if st.button("⚠️ Full System Reset"):
-            storage["locks"].clear(); storage["sold_units"].clear(); storage["download_history"].clear(); storage["unit_hits"].clear(); storage["waiting_customers"].clear()
-            st.rerun()
+        t1, t2, t3 = st.tabs(["Queue Management", "Sales History", "System Reset"])
+        
+        with t1:
+            st.subheader("Manage Waiting Queue")
+            if storage["waiting_customers"]:
+                cust_to_del = st.selectbox("Select Customer to Remove:", storage["waiting_customers"])
+                if st.button("Delete from Queue"):
+                    storage["waiting_customers"].remove(cust_to_del)
+                    st.success(f"Removed {cust_to_del} from list.")
+                    st.rerun()
+            else:
+                st.info("No customers in waiting queue.")
+            
+            st.write("---")
+            st.subheader("Manage Active Booths")
+            active_booths = {k: v for k, v in storage["booths"].items() if v}
+            if active_booths:
+                b_to_clear = st.selectbox("Select Cabin to Clear:", list(active_booths.keys()))
+                if st.button(f"Clear Cabin {b_to_clear}"):
+                    storage["booths"][b_to_clear] = None
+                    st.success(f"Cabin {b_to_clear} is now free.")
+                    st.rerun()
+            else:
+                st.info("No customers currently assigned to booths.")
+
+        with t2:
+            if storage["download_history"]:
+                st.dataframe(pd.DataFrame(storage["download_history"]), use_container_width=True)
+            else:
+                st.info("No bookings recorded yet.")
+
+        with t3:
+            st.warning("This action cannot be undone.")
+            if st.button("⚠️ PERFORM FULL SYSTEM RESET"):
+                storage["locks"].clear(); storage["sold_units"].clear(); storage["download_history"].clear(); storage["unit_hits"].clear(); storage["waiting_customers"].clear()
+                storage["booths"] = {letter: None for letter in "ABCDEFGHIJ"}
+                st.rerun()
