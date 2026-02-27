@@ -252,9 +252,6 @@ else:
                             margin-bottom: 10px;">
                             <p style="color: #FFD700; font-size: 10px; font-weight: bold; margin: 0; text-transform: uppercase;">RANK #{i+1} TRENDING</p>
                             <p style="color: white; font-size: 18px; font-weight: 800; margin: 5px 0;">{uid}</p>
-                            <div style="background: #333; border-radius: 4px; display: inline-block; padding: 2px 8px;">
-                                <p style="color: #00FF00; font-size: 10px; margin: 0; font-weight: bold;">{available_hits[uid]} VIEWS</p>
-                            </div>
                         </div>
                         """, unsafe_allow_html=True)
 
