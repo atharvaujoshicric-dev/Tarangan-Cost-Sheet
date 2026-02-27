@@ -138,6 +138,7 @@ def create_pdf(unit_id, floor, carpet, costs, cust_name, date_str, use_parking):
         pdf.set_xy(150, footer_y + 19); pdf.set_font("Arial", '', 7); pdf.cell(45, 5, "Customer Signature", align='C')
 
     return pdf.output(dest='S').encode('latin-1')
+
 # --- 5. UI SETUP ---
 st.set_page_config(page_title="Tarangan Dashboard", layout="wide")
 
@@ -190,13 +191,42 @@ else:
     # --- GRE DASHBOARD ---
     if st.session_state.role == "GRE":
         st.title("📝 Stage 1: GRE Entry")
-        with st.form("gre"):
-            name = st.text_input("Customer Name").strip()
-            if st.form_submit_button("Submit"):
-                if name and name.upper() not in [c.upper() for c in storage["waiting_customers"]]:
-                    storage["waiting_customers"].append(name)
-                    st.success(f"Added {name} to list.")
-                else: st.warning("Name duplicate or empty.")
+        
+        tab_add, tab_edit = st.tabs(["Add New Customer", "Manage Waiting List"])
+        
+        with tab_add:
+            with st.form("gre_add"):
+                name = st.text_input("Customer Name").strip()
+                if st.form_submit_button("Submit"):
+                    if name and name.upper() not in [c.upper() for c in storage["waiting_customers"]]:
+                        storage["waiting_customers"].append(name)
+                        log_activity("GRE", "ADD_QUEUE", f"Customer {name} added.")
+                        st.success(f"Added {name} to list.")
+                    else: st.warning("Name duplicate or empty.")
+        
+        with tab_edit:
+            if storage["waiting_customers"]:
+                st.subheader("Edit or Remove Customers")
+                cust_to_manage = st.selectbox("Select Customer to Modify:", storage["waiting_customers"])
+                new_name = st.text_input("New Name:", value=cust_to_manage)
+                
+                col_edit, col_del = st.columns(2)
+                with col_edit:
+                    if st.button("Update Name"):
+                        if new_name.strip() and new_name.strip() != cust_to_manage:
+                            idx = storage["waiting_customers"].index(cust_to_manage)
+                            storage["waiting_customers"][idx] = new_name.strip()
+                            log_activity("GRE", "EDIT_QUEUE", f"{cust_to_manage} renamed to {new_name}")
+                            st.success("Name updated.")
+                            st.rerun()
+                with col_del:
+                    if st.button("Delete Customer"):
+                        storage["waiting_customers"].remove(cust_to_manage)
+                        log_activity("GRE", "DELETE_QUEUE", f"{cust_to_manage} removed.")
+                        st.error("Customer removed.")
+                        st.rerun()
+            else:
+                st.info("No customers in the waiting list.")
 
     # --- MANAGER DASHBOARD ---
     elif st.session_state.role == "Manager":
@@ -226,7 +256,7 @@ else:
             st.success(f"Serving: {cust_name}")
             inventory = load_data()
             
-            # Hot Selling Identification
+            # Hot Selling Logic
             available_hits = {u: c for u, c in storage["unit_hits"].items() if u not in storage["sold_units"]}
             hot_list = [u for u, c in sorted(available_hits.items(), key=lambda x: x[1], reverse=True)[:3]]
             
@@ -246,19 +276,17 @@ else:
                             box-shadow: 0 4px 10px rgba(212, 175, 55, 0.3);">
                             <p style="color: #D4AF37; font-size: 9px; font-weight: bold; margin: 0; letter-spacing: 1px;">TOP CHOICE #{i+1}</p>
                             <p style="color: white; font-size: 18px; font-weight: 900; margin: 3px 0;">{uid}</p>
-                            
                         </div>
                         """, unsafe_allow_html=True)
 
             search_id = st.session_state.get("search_id_input", "").upper()
             
-            # --- AUTO-COLLAPSE GRID ---
+            # Auto-collapse grid
             with st.expander("📁 Inventory Selection Grid", expanded=(search_id == "")):
                 grid_cols = st.columns(6)
                 for idx, row in inventory.iterrows():
                     uid = str(row['ID']).upper()
-                    is_sold = uid in storage["sold_units"]
-                    is_busy = uid in storage["locks"] and storage["locks"][uid] != st.runtime.scriptrunner.get_script_run_ctx().session_id
+                    is_sold, is_busy = uid in storage["sold_units"], uid in storage["locks"] and storage["locks"][uid] != st.runtime.scriptrunner.get_script_run_ctx().session_id
                     is_hot, is_restricted = uid in hot_list, uid in ["A-705", "A-1205"]
                     
                     with grid_cols[idx % 6]:
@@ -272,7 +300,6 @@ else:
                             storage["unit_hits"][uid] = storage["unit_hits"].get(uid, 0) + 1
                             st.rerun()
 
-            # --- ORIGINAL MONOCHROME ONSCREEN COST SHEET ---
             if search_id:
                 match = inventory[inventory['ID'].astype(str).str.upper() == search_id]
                 if not match.empty:
@@ -309,38 +336,28 @@ else:
                         </div>
                     """, unsafe_allow_html=True)
                     
-                    st.write("")
                     col_d, col_r = st.columns(2)
-                    with col_d:
-                        if st.button("📥 Download PDF & Block"):
+                    with col_d: 
+                        if st.button("📥 Download PDF & Block"): 
                             download_dialog(search_id, row.get('Floor','N/A'), row.get('CARPET','N/A'), res, cust_name, today_str, use_p, ist_now.strftime("%d/%m/%Y %H:%M:%S"))
-                    with col_r:
-                        st.button("❌ Close / Release", on_click=release_unit_callback, args=(search_id,))
+                    with col_r: st.button("❌ Close", on_click=release_unit_callback, args=(search_id,))
 
-    # --- ADMIN DASHBOARD ---
+    # --- ADMIN ---
     elif st.session_state.role == "Tarangan":
         st.title("🛠️ Admin Master Dashboard")
         if st.button("🔄 Refresh System Data"): st.rerun()
-        
         t1, t2, t3 = st.tabs(["Activity Tracker", "Booking Management", "System Reset"])
-        
         with t1:
-            if storage["activity_log"]:
-                st.dataframe(pd.DataFrame(storage["activity_log"]), use_container_width=True)
-        
+            if storage["activity_log"]: st.dataframe(pd.DataFrame(storage["activity_log"]), use_container_width=True)
         with t2:
-            st.subheader("📋 Booked Flats Detailed Data")
             if storage["download_history"]:
                 df_disp = pd.DataFrame(storage["download_history"])
                 st.dataframe(df_disp, use_container_width=True)
-                st.write("---")
                 unit_to_unblock = st.selectbox("Select Unit ID to restore:", list(storage["sold_units"]))
                 if st.button("Unblock & Restore Unit"):
                     storage["sold_units"].remove(unit_to_unblock)
                     storage["download_history"] = [item for item in storage["download_history"] if item.get("Unit ID") != unit_to_unblock]
-                    st.success(f"Unit {unit_to_unblock} restored.")
                     st.rerun()
-
         with t3:
             if st.button("⚠️ FULL SYSTEM RESET"):
                 storage["locks"].clear(); storage["sold_units"].clear(); storage["download_history"].clear()
