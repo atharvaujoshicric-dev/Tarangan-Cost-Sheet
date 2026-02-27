@@ -29,17 +29,13 @@ def send_transaction_email_with_pdf(details, pdf_content, filename):
         msg['From'] = f"{SENDER_NAME} <{SENDER_EMAIL}>"
         msg['To'] = RECEIVER_EMAIL
         msg['Subject'] = f"Booking Confirmed: {details['Unit No']} - {details['Customer Name']}"
-        
         body = f"A new booking has been confirmed.\n\nSummary:\n" + "\n".join([f"{k}: {v}" for k, v in details.items()])
         msg.attach(MIMEText(body, 'plain'))
-
-        # Attach PDF
         part = MIMEBase('application', 'octet-stream')
         part.set_payload(pdf_content)
         encoders.encode_base64(part)
         part.add_header('Content-Disposition', f"attachment; filename= {filename}")
         msg.attach(part)
-
         server = smtplib.SMTP('smtp.gmail.com', 587)
         server.starttls()
         server.login(SENDER_EMAIL, APP_PASSWORD)
@@ -51,12 +47,9 @@ def send_transaction_email_with_pdf(details, pdf_content, filename):
 # --- SLOT LOGIC ---
 def get_slot_data():
     now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=5, minutes=30))).time()
-    if datetime.time(10, 0) <= now <= datetime.time(11, 30):
-        return "Slot 1", range(21, 46)
-    elif datetime.time(13, 0) <= now <= datetime.time(14, 30):
-        return "Slot 2", range(46, 72)
-    elif datetime.time(17, 0) <= now <= datetime.time(18, 0):
-        return "Slot 3", "REST"
+    if datetime.time(10, 0) <= now <= datetime.time(11, 30): return "Slot 1", range(21, 46)
+    elif datetime.time(13, 0) <= now <= datetime.time(14, 30): return "Slot 2", range(46, 72)
+    elif datetime.time(17, 0) <= now <= datetime.time(18, 0): return "Slot 3", "REST"
     return "No Active Slot", []
 
 # --- 1. SHARED STORAGE ---
@@ -65,9 +58,10 @@ def get_global_storage():
     return {
         "locks": {}, "sold_units": set(), "download_history": [],
         "booths": {letter: None for letter in "ABCDEFGHIJ"},
-        "admin_overrides": {letter: False for letter in "ABCDEFGHIJ"}, 
-        "opted_out_customers": [], "unit_hits": {},
-        "waiting_customers": [], "activity_log": []
+        "pending_requests": {}, # Format: {cabin: [unit1, unit2]}
+        "approved_units": {letter: [] for letter in "ABCDEFGHIJ"}, 
+        "unblock_counts": {letter: 0 for letter in "ABCDEFGHIJ"}, # Limit 2 per customer
+        "opted_out_customers": [], "waiting_customers": [], "activity_log": []
     }
 
 storage = get_global_storage()
@@ -76,6 +70,14 @@ def log_activity(user, action, details):
     ist_now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=5, minutes=30)))
     storage["activity_log"].append({"Timestamp": ist_now.strftime("%d/%m/%Y %H:%M:%S"), "User": user, "Action": action, "Details": details})
 
+def reset_cabin_session(cabin):
+    """Resets all temporary permissions when a customer leaves the cabin."""
+    storage["booths"][cabin] = None
+    storage["approved_units"][cabin] = []
+    storage["unblock_counts"][cabin] = 0
+    if cabin in storage["pending_requests"]:
+        del storage["pending_requests"][cabin]
+
 # --- 2. CONFIG & GOOGLE SHEET ---
 SHEET_ID = "1L-anmwniKOgT2DfNJMdqYkMsRw4slAcH2MUR5OPfcP0"
 TAB_NAME = "Inventory List" 
@@ -83,24 +85,16 @@ CSV_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:cs
 
 # --- 3. BACKEND LOGIC ---
 def format_indian_currency(number):
-    s = str(int(number))
-    if len(s) <= 3: return s
-    return re.sub(r'(\d+?)(?=(\d{2})+$)', r'\1,', s[:-3]) + ',' + s[-3:]
-
-def clean_numeric(value):
-    if pd.isna(value): return 0.0
-    clean_val = re.sub(r'[^\d.]', '', str(value))
-    return float(clean_val) if clean_val else 0.0
+    s = str(int(number)); return re.sub(r'(\d+?)(?=(\d{2})+$)', r'\1,', s[:-3]) + ',' + s[-3:] if len(s) > 3 else s
 
 def calculate_negotiation(initial_agreement, pkg_discount=0, park_discount=0, use_parking=False, is_female=False):
     parking_price = (200000 - park_discount) if use_parking else 0
     final_agreement = initial_agreement - pkg_discount + parking_price
     sd_pct = 0.06 if is_female else 0.07
     gst_pct = 0.05 if final_agreement > 4500000 else 0.01
-    reg = 30000 
     sd_amt = round(final_agreement * sd_pct, -2) 
-    total = int(final_agreement + sd_amt + (final_agreement * gst_pct) + reg)
-    return {"Final Agreement": final_agreement, "Stamp Duty": sd_amt, "SD_Pct": sd_pct*100, "GST": final_agreement*gst_pct, "GST_Pct": gst_pct*100, "Registration": reg, "Total": total, "Combined_Discount": int(pkg_discount + park_discount)}
+    total = int(final_agreement + sd_amt + (final_agreement * gst_pct) + 30000)
+    return {"Final Agreement": final_agreement, "Stamp Duty": sd_amt, "SD_Pct": sd_pct*100, "GST": final_agreement*gst_pct, "GST_Pct": gst_pct*100, "Registration": 30000, "Total": total, "Combined_Discount": int(pkg_discount + park_discount)}
 
 # --- 4. PDF GENERATION ---
 def create_pdf(unit_id, floor, carpet, costs, cust_name, date_str, use_parking):
@@ -177,94 +171,37 @@ st.set_page_config(page_title="Tarangan Dashboard", layout="wide")
 
 @st.cache_data(ttl=2)
 def load_data():
-    df = pd.read_csv(CSV_URL)
-    df.columns = [str(c).strip() for c in df.columns]
-    return df
+    df = pd.read_csv(CSV_URL); df.columns = [str(c).strip() for c in df.columns]; return df
 
 @st.dialog("Booking Confirmation")
 def download_dialog(unit_id, floor, carpet, costs, cust_name, date_str, use_parking, ist_log_time, cabin_key):
     st.write(f"Confirming booking for **Unit {unit_id}**")
-    sales_name = st.text_input("Enter Sales Person Name:")
+    sales_name = st.text_input("Sales Person Name:")
     if st.button("Confirm & Download"):
         if not sales_name.strip(): st.error("Name required.")
         else:
             pdf_bytes = create_pdf(unit_id, floor, carpet, costs, cust_name, date_str, use_parking)
-            details = {
-                "Timestamp": ist_log_time, "Sales Person": sales_name, "Unit No": unit_id, 
-                "Floor": floor, "Carpet Area": carpet, "Customer Name": cust_name, 
-                "Agreement Value": costs['Final Agreement'], "Stamp Duty": costs['Stamp Duty'],
-                "GST": costs['GST'], "Registration": costs['Registration'],
-                "Total Package": format_indian_currency(costs['Total']), "Discount Given": costs['Combined_Discount']
-            }
-            storage["download_history"].append(details)
-            storage["sold_units"].add(unit_id)
-            storage["booths"][cabin_key] = None 
-            st.session_state.search_id_input = ""
-            if unit_id in storage["locks"]: del storage["locks"][unit_id]
-            
-            # Send Email with PDF Attachment
+            details = {"Timestamp": ist_log_time, "Sales Person": sales_name, "Unit No": unit_id, "Floor": floor, "Carpet Area": carpet, "Customer Name": cust_name, "Total Package": format_indian_currency(costs['Total']), "Discount Given": costs['Combined_Discount']}
+            storage["download_history"].append(details); storage["sold_units"].add(unit_id)
             send_transaction_email_with_pdf(details, pdf_bytes, f"Tarangan_{unit_id}.pdf")
-            
-            log_activity(sales_name, "BOOKING_COMPLETE", f"Unit {unit_id} for {cust_name}")
-            st.success("Booked! Email with PDF sent to Sales.")
-            st.download_button("📥 Save PDF", pdf_bytes, f"Tarangan_{unit_id}.pdf", "application/pdf")
-
-def release_unit_callback(unit_to_release):
-    if unit_to_release in storage["locks"]: del storage["locks"][unit_to_release]
-    st.session_state.search_id_input = ""
+            reset_cabin_session(cabin_key) # AUTO RESET CABIN
+            st.session_state.search_id_input = ""
+            st.success("Booked! Cabin is now Free."); st.download_button("📥 Save PDF", pdf_bytes, f"Tarangan_{unit_id}.pdf", "application/pdf")
 
 # --- LOGIN ---
 if 'authenticated' not in st.session_state: st.session_state.authenticated = False
-
 if not st.session_state.authenticated:
     st.title("🔐 Tarangan Login")
     u, p = st.text_input("Username"), st.text_input("Password", type="password")
     if st.button("Login"):
         creds = {"Tarangan": "Tarangan@0103", "Sales": "Sales@2026", "GRE": "Gre@2026", "Manager": "Manager@2026"}
-        if u in creds and p == creds[u]:
-            st.session_state.authenticated, st.session_state.role, st.session_state.user_id = True, u, u
-            st.rerun()
+        if u in creds and p == creds[u]: st.session_state.authenticated, st.session_state.role, st.session_state.user_id = True, u, u; st.rerun()
 else:
     if st.sidebar.button("Logout"): st.session_state.authenticated = False; st.rerun()
 
-    # --- GRE ---
-    if st.session_state.role == "GRE":
-        st.title("📝 Stage 1: GRE Entry")
-        inventory = load_data()
-        allotted = sorted(list(inventory['Customer Allotted'].dropna().unique()))
-        name_sel = st.selectbox("Select Allotted Customer:", ["Select Name"] + allotted)
-        if st.button("Add to Waiting List"):
-            if name_sel != "Select Name": 
-                storage["waiting_customers"].append(name_sel)
-                log_activity("GRE", "CUSTOMER_VISIT", name_sel)
-                st.success(f"Added {name_sel}")
-        st.write("---")
-        new_name = st.text_input("Walk-in Name:")
-        if st.button("Add Walk-in"):
-            if new_name: 
-                storage["waiting_customers"].append(new_name)
-                log_activity("GRE", "WALKIN_VISIT", new_name)
-                st.success(f"Added {new_name}")
-
-    # --- MANAGER ---
-    elif st.session_state.role == "Manager":
-        st.title("👔 Stage 2: Manager Assignment")
-        if st.button("🔄 Refresh"): st.rerun()
-        col1, col2 = st.columns(2)
-        if storage["waiting_customers"]:
-            sel_c = col1.selectbox("Customer:", storage["waiting_customers"])
-            sel_b = col1.selectbox("Cabin:", [b for b, v in storage["booths"].items() if v is None])
-            if col1.button("Assign"):
-                storage["booths"][sel_b] = sel_c
-                storage["waiting_customers"].remove(sel_c)
-                log_activity("Manager", "CABIN_ASSIGN", f"{sel_c} to {sel_b}")
-                st.rerun()
-        col2.table([{"Cabin": k, "Customer": v if v else "Free"} for k, v in storage["booths"].items()])
-
     # --- SALES ---
-    elif st.session_state.role == "Sales":
+    if st.session_state.role == "Sales":
         st.title("🏙️ Stage 3: Sales Portal")
-        if st.button("🔄 Refresh Data"): st.rerun()
         my_cabin = st.selectbox("Select Cabin:", list("ABCDEFGHIJ"))
         cust_name = storage["booths"].get(my_cabin)
         
@@ -272,15 +209,21 @@ else:
             inventory = load_data()
             token_row = inventory[inventory['Customer Allotted'].astype(str).str.contains(cust_name, case=False, na=False)]
             assigned_id = str(token_row['ID'].values[0]).upper() if not token_row.empty else "NONE"
-            st.info(f"Serving: **{cust_name}** | Target Flat: **{assigned_id}**")
+            st.info(f"Serving: **{cust_name}** | Base Flat: **{assigned_id}**")
 
-            if not storage["admin_overrides"].get(my_cabin):
-                if st.button("🔑 Request Admin to Unblock All Units"):
-                    log_activity("Sales", "REQUEST_UNBLOCK", f"Cabin {my_cabin} requested access.")
-                    st.toast("Request sent to Admin.")
+            # --- REQUEST UNBLOCK LOGIC ---
+            remaining = 2 - storage["unblock_counts"][my_cabin]
+            if remaining > 0:
+                req_unit = st.text_input("Enter Flat ID to Request Unblock (e.g. A-105):").upper()
+                if st.button(f"Request Unblock ({remaining} left)"):
+                    if req_unit:
+                        storage["pending_requests"][my_cabin] = req_unit
+                        st.toast(f"Request for {req_unit} sent to Admin.")
+            else:
+                st.warning("Maximum of 2 unblocks used for this customer.")
 
             if st.button("❌ Customer Opted Out"):
-                storage["opted_out_customers"].append(cust_name); storage["booths"][my_cabin] = None; st.rerun()
+                storage["opted_out_customers"].append(cust_name); reset_cabin_session(my_cabin); st.rerun()
 
             search_id = st.session_state.get("search_id_input", "").upper()
             with st.expander("📁 Inventory Selection", expanded=(search_id == "")):
@@ -288,82 +231,40 @@ else:
                 for idx, row in inventory.iterrows():
                     uid = str(row['ID']).upper()
                     is_sold, is_busy = uid in storage["sold_units"], uid in storage["locks"] and storage["locks"][uid] != st.runtime.scriptrunner.get_script_run_ctx().session_id
-                    is_blocked = not (storage["admin_overrides"].get(my_cabin) or uid == assigned_id)
+                    
+                    # UNLOCK LOGIC: Assigned ID OR Admin Approved Unit
+                    is_unlocked = (uid == assigned_id) or (uid in storage["approved_units"][my_cabin])
+                    
                     with grid_cols[idx % 6]:
-                        if is_sold: lbl, clr = f"🟢 {uid}", True
-                        elif is_busy: lbl, clr = f"🔴 BUSY", True
-                        else: lbl, clr = f"🟡 {uid}", is_blocked
-                        if st.button(lbl, key=f"btn_{uid}", use_container_width=True, disabled=clr):
+                        if is_sold: lbl, dis = f"🟢 {uid}", True
+                        elif is_busy: lbl, dis = f"🔴 BUSY", True
+                        else: lbl, dis = f"🟡 {uid}", not is_unlocked
+                        if st.button(lbl, key=f"btn_{uid}", use_container_width=True, disabled=dis):
                             st.session_state.search_id_input = uid; st.rerun()
 
             if search_id:
                 match = inventory[inventory['ID'].astype(str).str.upper() == search_id]
                 if not match.empty:
-                    row = match.iloc[0]
-                    storage["locks"][search_id] = st.runtime.scriptrunner.get_script_run_ctx().session_id
+                    row = match.iloc[0]; storage["locks"][search_id] = st.runtime.scriptrunner.get_script_run_ctx().session_id
                     res = calculate_negotiation(clean_numeric(row.get('Agreement Value', 0)), st.number_input("Discount:", value=0), 0, st.checkbox("Parking"), False)
                     st.markdown(f'<div style="background:white;padding:20px;border:2px solid black;color:black;font-family:monospace;"><b>Customer:</b> {cust_name}<br><b>Unit:</b> {search_id}<br><b>Total:</b> {format_indian_currency(res["Total"])}</div>', unsafe_allow_html=True)
-                    if st.button("📥 Download PDF"): 
-                        download_dialog(search_id, row.get('Floor','N/A'), row.get('CARPET','N/A'), res, cust_name, "2026", False, "2026", my_cabin)
-                    st.button("❌ Close", on_click=release_unit_callback, args=(search_id,))
+                    if st.button("📥 Download PDF"): download_dialog(search_id, row.get('Floor','N/A'), row.get('CARPET','N/A'), res, cust_name, "2026", False, "2026", my_cabin)
+                    st.button("❌ Close", on_click=lambda: st.session_state.update({"search_id_input": ""}))
 
     # --- ADMIN ---
     elif st.session_state.role == "Tarangan":
         st.title("🛠️ Admin Dashboard")
-        if st.button("🔄 Global Refresh"): st.rerun()
-        t1, t2, t3, t4, t5 = st.tabs(["Activity Log", "Overrides", "Master Sales", "Non-Visited", "Reset"])
-        
+        t1, t2, t3 = st.tabs(["Unblock Requests", "Master Sales", "Reset"])
         with t1:
-            st.subheader("System Events")
-            if storage["activity_log"]:
-                st.dataframe(pd.DataFrame(storage["activity_log"]), use_container_width=True)
-            else:
-                st.info("No activity recorded yet.")
-
-        with t2:
-            st.subheader("Sales Cabin Overrides")
-            for cabin, status in storage["admin_overrides"].items():
-                if st.button(f"{'🚫 Revoke' if status else '✅ Approve'} Access for Cabin {cabin}"):
-                    storage["admin_overrides"][cabin] = not status; st.rerun()
-        
+            st.subheader("Pending Unit Requests")
+            for cabin, unit in list(storage["pending_requests"].items()):
+                st.write(f"Cabin **{cabin}** requests unblock for **{unit}**")
+                col_a, col_r = st.columns(2)
+                if col_a.button(f"Approve {unit} (Cabin {cabin})"):
+                    storage["approved_units"][cabin].append(unit)
+                    storage["unblock_counts"][cabin] += 1
+                    del storage["pending_requests"][cabin]; st.rerun()
+                if col_r.button(f"Reject {cabin}"): del storage["pending_requests"][cabin]; st.rerun()
         with t3:
-            st.subheader("All Completed Transactions")
-            if storage["download_history"]:
-                df_sales = pd.DataFrame(storage["download_history"])
-                st.dataframe(df_sales, use_container_width=True)
-                csv = df_sales.to_csv(index=False).encode('utf-8')
-                st.download_button("📊 Export to CSV", csv, "Tarangan_Sales.csv", "text/csv")
-            else:
-                st.info("No sales data available yet.")
-
-        with t4:
-            st.subheader("Tracking Slot Attendance")
-            slot, tokens = get_slot_data()
-            st.info(f"Currently tracking: **{slot}**")
-            inventory = load_data()
-            if tokens == "REST":
-                active = inventory[~inventory['Token Number'].between(21, 71)]
-            else:
-                active = inventory[inventory['Token Number'].isin(tokens)]
-            
-            # Identify who visited (Completed Sales + Currently waiting in Manager List)
-            visited = [r['Customer Name'] for r in storage["download_history"]] + storage["waiting_customers"]
-            non_visited = active[~active['Customer Allotted'].isin(visited)]
-            
-            if not non_visited.empty:
-                st.dataframe(non_visited[['Token Number', 'Customer Allotted']], use_container_width=True)
-            else:
-                st.success("All allotted customers for this slot have visited!")
-
-        with t5:
-            st.subheader("System Factory Reset")
-            if st.text_input("Enter Reset Password", type="password") == "Atharva Joshi":
-                if st.button("⚠️ PERMANENTLY WIPE ALL DATA"): 
-                    storage["locks"].clear()
-                    storage["sold_units"].clear()
-                    storage["download_history"].clear()
-                    storage["activity_log"].clear()
-                    storage["waiting_customers"].clear()
-                    storage["booths"] = {letter: None for letter in "ABCDEFGHIJ"}
-                    st.success("System has been reset.")
-                    st.rerun()
+            if st.text_input("Reset Password", type="password") == "Atharva Joshi":
+                if st.button("⚠️ FULL RESET"): storage["locks"].clear(); storage["sold_units"].clear(); storage["download_history"].clear(); st.rerun()
