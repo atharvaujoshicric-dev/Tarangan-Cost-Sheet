@@ -21,7 +21,7 @@ except ImportError:
 SENDER_EMAIL = "atharvaujoshi@gmail.com"
 SENDER_NAME = "Tarangan Cost Sheet" 
 APP_PASSWORD = "nybl zsnx zvdw edqr"
-RECEIVER_EMAIL = "sales@taranganbysmmahalaxmi.com"
+RECEIVER_EMAIL = "hiteshwar.salunkhe@beyondwalls.com"
 
 # --- HELPER FUNCTIONS (DEFINED FIRST TO AVOID NAMEERROR) ---
 def clean_numeric(value):
