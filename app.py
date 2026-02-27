@@ -227,7 +227,7 @@ else:
             hot_list = [u for u, c in sorted(available_hits.items(), key=lambda x: x[1], reverse=True)[:3]]
             
             if hot_list:
-                st.subheader("⚫ Trending Available Units")
+                st.subheader(" Hottest Selling Units")
                 h_cols = st.columns(6) # Spreading small boxes across more columns to make them smaller
                 for i, uid in enumerate(hot_list):
                     with h_cols[i]:
