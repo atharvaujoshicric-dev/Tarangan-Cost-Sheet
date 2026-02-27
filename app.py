@@ -310,11 +310,33 @@ else:
                 st.write("")
                 col_act1, col_act2 = st.columns(2)
                 if col_act1.button("✅ Finalize & Send"):
-                    pdf_bytes = create_pdf(search_id, row.get('Floor','N/A'), row.get('CARPET','N/A'), res, cust_name, "28/02/2026", use_p)
-                    details = {"Unit No": search_id, "Customer Name": cust_name, "Total": format_indian_currency(res['Total'])}
-                    if send_email(RECEIVER_EMAIL, pdf_bytes, f"{search_id}.pdf", details):
-                        storage["sold_units"].add(search_id); storage["download_history"].append(details)
-                        reset_cabin_session(my_cabin); st.session_state.search_id_input = ""; st.rerun()
+                        pdf_bytes = create_pdf(search_id, row.get('Floor','N/A'), row.get('CARPET','N/A'), res, cust_name, ist_now.strftime("%d/%m/%Y"), use_p)
+                        
+                        # --- CAPTURE ALL DATA FOR REPORT ---
+                        details = {
+                            "Date": ist_now.strftime("%d/%m/%Y %H:%M"),
+                            "Sales Person": st.session_state.role, # Or specific name if you have it
+                            "Cabin": my_cabin,
+                            "Customer Name": cust_name,
+                            "Unit No": search_id,
+                            "Floor": row.get('Floor','N/A'),
+                            "Carpet Area": row.get('CARPET','N/A'),
+                            "Agreement Value": res['Final Agreement'],
+                            "Stamp Duty": res['Stamp Duty'],
+                            "GST": res['GST'],
+                            "Registration": res['Registration'],
+                            "Total Package": res['Total'],
+                            "Discount Given": res['Combined_Discount'],
+                            "Parking": "Yes" if use_p else "No"
+                        }
+                        
+                        if send_email(RECEIVER_EMAIL, pdf_bytes, f"{search_id}.pdf", details):
+                            storage["sold_units"].add(search_id)
+                            storage["download_history"].append(details) # Saves the full dictionary
+                            reset_cabin_session(my_cabin)
+                            st.session_state.search_id_input = ""
+                            st.success("Booking Confirmed & Email Sent!")
+                            st.rerun()
                 
                 if col_act2.button("❌ Close / Release"):
                     st.session_state.search_id_input = ""; st.rerun()
@@ -375,31 +397,34 @@ else:
                 st.success("Logs cleared.")
 
         with t4:
-            st.subheader("📈 Project Sales Report")
+            st.subheader("📈 Full Project Sales Report")
             
             if storage["download_history"]:
-                # Convert history to DataFrame
                 df_report = pd.DataFrame(storage["download_history"])
                 
                 # --- Metrics Summary ---
                 m1, m2, m3 = st.columns(3)
-                m1.metric("Total Units Sold", len(df_report))
-                m2.metric("Total Revenue", f"₹ {format_indian_currency(df_report['Total Package'].sum())}")
-                m3.metric("Total Discount Given", f"₹ {format_indian_currency(df_report['Discount'].sum())}")
+                m1.metric("Units Sold", len(df_report))
+                
+                # Calculate totals using the correct keys defined in Step 1
+                total_rev = df_report["Total Package"].sum()
+                total_disc = df_report["Discount Given"].sum()
+                
+                m2.metric("Total Revenue", f"₹ {format_indian_currency(total_rev)}")
+                m3.metric("Total Discounts", f"₹ {format_indian_currency(total_disc)}")
                 
                 st.divider()
                 
-                # --- Search/Filter Table ---
-                st.write("### Detailed Transaction Log")
-                st.dataframe(df_report, use_container_width=True)
+                # --- Detailed Table ---
+                st.write("### All Transactions")
+                # Showing the columns you requested from the PDF + Sales Person
+                st.dataframe(df_report[[
+                    "Date", "Sales Person", "Cabin", "Customer Name", "Unit No", 
+                    "Agreement Value", "Stamp Duty", "GST", "Total Package", "Discount Given"
+                ]], use_container_width=True)
                 
-                # --- CSV Export ---
+                # CSV Export
                 csv = df_report.to_csv(index=False).encode('utf-8')
-                st.download_button(
-                    label="📥 Download Full Report (CSV)",
-                    data=csv,
-                    file_name=f"Tarangan_Sales_Report_{datetime.datetime.now().strftime('%d_%m_%Y')}.csv",
-                    mime="text/csv",
-                )
+                st.download_button("📥 Download Excel (CSV)", csv, "Full_Sales_Report.csv", "text/csv")
             else:
-                st.warning("No sales data available yet. Reports will appear once units are booked.")
+                st.info("No sales recorded yet. Data will appear here after 'Finalize & Send' is clicked.")
