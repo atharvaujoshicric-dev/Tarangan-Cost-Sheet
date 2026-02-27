@@ -104,7 +104,7 @@ CSV_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:cs
 def load_data():
     df = pd.read_csv(CSV_URL); df.columns = [str(c).strip() for c in df.columns]; return df
 
-defdef create_pdf(unit_id, floor, carpet, costs, cust_name, date_str, use_parking):
+def create_pdf(unit_id, floor, carpet, costs, cust_name, date_str, use_parking):
     pdf = FPDF()
     copies = ["Customer's Copy", "Sales Copy"]
     for copy_label in copies:
