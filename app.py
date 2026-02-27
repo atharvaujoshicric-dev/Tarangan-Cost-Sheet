@@ -235,13 +235,6 @@ else:
                         <div style="background-color: #000000; border: 2px solid #333333; border-radius: 10px; padding: 15px; text-align: center; color: white;">
                             <h4 style="color: #FFFFFF; margin: 0;">🔥 HOT SELLING # {i+1}</h4>
                             <p style="font-size: 24px; font-weight: bold; margin: 10px 0;">Unit {uid}</p>
-                            <span style="font-size: 14px; color: #BBBBBB;">Views: {available_hits[uid]}</span>
-                        </div>
-                        """, unsafe_allow_html=True)
-                        if st.button(f"Select Unit {uid}", key=f"hot_sel_{uid}"):
-                            st.session_state.search_id_input = uid
-                            storage["unit_hits"][uid] = storage["unit_hits"].get(uid, 0) + 1
-                            st.rerun()
 
             search_id = st.session_state.get("search_id_input", "").upper()
             
