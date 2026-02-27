@@ -57,7 +57,7 @@ def send_email(recipient_email, pdf_data, filename, details):
         msg['From'] = formataddr((SENDER_NAME, SENDER_EMAIL))
         msg['To'] = recipient_email
         msg['Subject'] = f"Tarangan Booking: {details['Unit No']} - {details['Customer Name']}"
-        body = f"Dear {recipient_name},\n\nPlease find the attached cost sheet analysis report.\n\nBooking Summary:\n1. Unit: {details['Unit No']}\n2. Customer: {details['Customer Name']}\n3. Total Package: Rs. {details['Total Package']}\n4. Sales: {details['Sales Person']}\n\nRegards,\nAtharva Joshi"
+        body = f"Dear {recipient_name},\n\nPlease find the attached cost sheet analysis report.\n\nBooking Summary:\n1. Unit: {details['Unit No']}\n2. Customer: {details['Customer Name']}\n3. Total Package: Rs. {details['Total Package']}\n4. Sales Person: {details['Sales Person']}\n\nRegards,\nAtharva Joshi"
         msg.attach(MIMEText(body, 'plain'))
         part = MIMEBase('application', 'octet-stream')
         part.set_payload(pdf_data)
@@ -74,7 +74,7 @@ def send_email(recipient_email, pdf_data, filename, details):
         st.error(f"Error sending email: {e}")
         return False
 
-# --- 1. SHARED STORAGE ---
+# --- SHARED STORAGE ---
 @st.cache_resource
 def get_global_storage():
     return {
@@ -95,7 +95,7 @@ def reset_cabin_session(cabin):
     if cabin in storage["pending_requests"]:
         del storage["pending_requests"][cabin]
 
-# --- 2. CONFIG & DATA ---
+# --- CONFIG & DATA ---
 SHEET_ID = "1L-anmwniKOgT2DfNJMdqYkMsRw4slAcH2MUR5OPfcP0"
 TAB_NAME = "Inventory List" 
 CSV_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet={urllib.parse.quote(TAB_NAME)}"
@@ -172,6 +172,7 @@ def create_pdf(unit_id, floor, carpet, costs, cust_name, date_str, use_parking):
         pdf.set_xy(150, footer_y + 19); pdf.set_font("Arial", '', 7); pdf.cell(45, 5, "Customer Signature", align='C')
 
     return pdf.output(dest='S').encode('latin-1')
+
 # --- UI SETUP ---
 st.set_page_config(page_title="Tarangan Dash", layout="wide")
 
@@ -201,43 +202,33 @@ if not st.session_state.authenticated:
 else:
     if st.sidebar.button("Logout"): st.session_state.authenticated = False; st.rerun()
 
-    # --- GRE DASHBOARD ---
+    # --- GRE ---
     if st.session_state.role == "GRE":
         st.title("📝 Stage 1: GRE Entry")
         if st.button("🔄 Refresh"): st.rerun()
-        
-        tab1, tab2 = st.tabs(["Add Customer", "Waiting List Management"])
-        
+        tab1, tab2 = st.tabs(["Add Customer", "Waiting List"])
         with tab1:
             inventory = load_data()
             allotted = sorted(list(inventory['Customer Allotted'].dropna().unique()))
-            name_sel = st.selectbox("Search/Select Allotted Customer:", ["Select Name"] + allotted)
-            if st.button("Add Allotted to Waiting List"):
-                if name_sel != "Select Name":
-                    storage["waiting_customers"].append(name_sel); st.success(f"Added {name_sel}")
-            
+            name_sel = st.selectbox("Select Allotted Customer:", ["Select Name"] + allotted)
+            if st.button("Add Allotted"):
+                if name_sel != "Select Name": storage["waiting_customers"].append(name_sel); st.success(f"Added {name_sel}")
             st.write("---")
-            walkin_name = st.text_input("Walk-in Customer Name:")
-            if st.button("Add Walk-in to Waiting List"):
-                if walkin_name:
-                    storage["waiting_customers"].append(walkin_name); st.success(f"Added Walk-in: {walkin_name}")
-
+            walkin_name = st.text_input("Walk-in Name:")
+            if st.button("Add Walk-in"):
+                if walkin_name: storage["waiting_customers"].append(walkin_name); st.success(f"Added {walkin_name}")
         with tab2:
-            st.subheader("Current Customers in Waiting Room")
             if storage["waiting_customers"]:
                 for i, cust in enumerate(storage["waiting_customers"]):
                     col_a, col_b = st.columns([3, 1])
                     col_a.write(f"**{i+1}. {cust}**")
-                    if col_b.button("Remove", key=f"rem_{i}"):
-                        storage["waiting_customers"].pop(i); st.rerun()
-            else:
-                st.info("The waiting room is currently empty.")
+                    if col_b.button("Remove", key=f"rem_{i}"): storage["waiting_customers"].pop(i); st.rerun()
 
     # --- MANAGER ---
     elif st.session_state.role == "Manager":
         st.title("👔 Stage 2: Manager Assignment")
         if st.button("🔄 Refresh"): st.rerun()
-        t_m1, t_m2 = st.tabs(["Assign Cabin", "Manage Active Cabins"])
+        t_m1, t_m2 = st.tabs(["Assign", "Manage Cabins"])
         with t_m1:
             col1, col2 = st.columns(2)
             if storage["waiting_customers"]:
@@ -249,13 +240,11 @@ else:
         with t_m2:
             occupied = {k: v for k, v in storage["booths"].items() if v}
             if occupied:
-                b_key = st.selectbox("Select Cabin to Manage:", list(occupied.keys()))
+                b_key = st.selectbox("Cabin:", list(occupied.keys()))
                 c1, c2 = st.columns(2)
-                if c1.button("Move back to Waiting List"):
-                    storage["waiting_customers"].append(occupied[b_key])
-                    reset_cabin_session(b_key); st.rerun()
-                if c2.button("Cancel & Remove Customer"):
-                    reset_cabin_session(b_key); st.rerun()
+                if c1.button("Move back to Waiting"):
+                    storage["waiting_customers"].append(occupied[b_key]); reset_cabin_session(b_key); st.rerun()
+                if c2.button("Remove Customer"): reset_cabin_session(b_key); st.rerun()
 
     # --- SALES ---
     elif st.session_state.role == "Sales":
@@ -271,10 +260,9 @@ else:
 
             rem = 2 - storage["unblock_counts"][my_cabin]
             if rem > 0:
-                req = st.text_input("Request Specific Unit:").upper()
+                req = st.text_input("Request Unit Unblock:").upper()
                 if st.button(f"Request Unblock ({rem} left)"):
                     if req: storage["pending_requests"][my_cabin] = req; st.toast("Sent.")
-            
             if st.button("❌ Opt-Out"):
                 storage["opted_out_customers"].append(cust_name); reset_cabin_session(my_cabin); st.rerun()
 
@@ -294,18 +282,45 @@ else:
                 match = inventory[inventory['ID'].astype(str).str.upper() == search_id]
                 if not match.empty:
                     row = match.iloc[0]
-                    res = calculate_negotiation(clean_numeric(row.get('Agreement Value', 0)), st.number_input("Discount:", value=0), 0, st.checkbox("Parking"), False)
-                    st.markdown(f'<div style="background:white;padding:20px;border:2px solid black;color:black;font-family:monospace;"><b>Unit:</b> {search_id}<br><b>Total:</b> {format_indian_currency(res["Total"])}</div>', unsafe_allow_html=True)
+                    ist_now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=5, minutes=30)))
+                    st.write("---")
+                    c1, c2, c3 = st.columns(3)
+                    with c1:
+                        use_d = st.checkbox("Discount")
+                        d_val = st.number_input("Amt:", value=0, step=1000) if use_d else 0
+                    with c2:
+                        use_p = st.checkbox("Parking")
+                        p_val = st.number_input("Park Disc:", value=0, min_value=0, max_value=100000, step=1000) if use_p else 0
+                    with c3: is_f = st.checkbox("Female")
+                    
+                    res = calculate_negotiation(clean_numeric(row.get('Agreement Value', 0)), d_val, p_val, use_p, is_f)
+                    
+                    # RESTORED OLD ONSCREEN STYLE
+                    st.markdown(f"""
+                        <div style="background:white; padding:30px; border:2px solid black; color:black; font-family:monospace;">
+                            <div style="text-align:right;">Date: {ist_now.strftime("%d/%m/%Y")}</div>
+                            <h2 style="text-align:center; border-bottom:2px solid black;">TARANGAN</h2>
+                            <p><b>Customer:</b> {cust_name}</p>
+                            <p><b>Unit:</b> {search_id} | <b>Floor:</b> {row.get('Floor','N/A')} | <b>Carpet:</b> {row.get('CARPET','N/A')} sqft</p>
+                            <div style="display:flex; justify-content:space-between; border-bottom:1px dotted #888; padding:5px 0;"><span>Agreement</span><span>Rs. {format_indian_currency(res['Final Agreement'])}</span></div>
+                            <div style="display:flex; justify-content:space-between; border-bottom:1px dotted #888; padding:5px 0;"><span>Stamp Duty ({int(res['SD_Pct'])}%)</span><span>Rs. {format_indian_currency(res['Stamp Duty'])}</span></div>
+                            <div style="display:flex; justify-content:space-between; border-bottom:1px dotted #888; padding:5px 0;"><span>GST ({int(res['GST_Pct'])}%)</span><span>Rs. {format_indian_currency(res['GST'])}</span></div>
+                            <div style="display:flex; justify-content:space-between; border-bottom:1px dotted #888; padding:5px 0;"><span>Registration</span><span>Rs. {format_indian_currency(res['Registration'])}</span></div>
+                            <div style="display:flex; justify-content:space-between; font-weight:bold; font-size:1.2em; border-top:2px solid black; margin-top:10px; padding:10px 0;"><span>TOTAL</span><span>Rs. {format_indian_currency(res['Total'])}</span></div>
+                            <div style="font-style:italic; margin-top:5px;">Rupees {num2words(res['Total'], lang='en_IN').title().replace(",","")} Only</div>
+                            <div style="color:red; font-weight:bold; margin-top:10px;">Total Discount Availed: Rs. {format_indian_currency(res['Combined_Discount'])}</div>
+                        </div>
+                    """, unsafe_allow_html=True)
+                    
                     if st.button("📥 Download & Email"):
-                        now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=5, minutes=30))).strftime("%d/%m/%Y %H:%M")
-                        download_dialog(search_id, row.get('Floor','N/A'), row.get('CARPET','N/A'), res, cust_name, now, my_cabin)
-                    st.button("❌ Close Selection", on_click=lambda: st.session_state.update({"search_id_input": ""}))
+                        download_dialog(search_id, row.get('Floor','N/A'), row.get('CARPET','N/A'), res, cust_name, ist_now.strftime("%d/%m/%Y %H:%M"), my_cabin)
+                    st.button("❌ Close", on_click=lambda: st.session_state.update({"search_id_input": ""}))
 
     # --- ADMIN ---
     elif st.session_state.role == "Tarangan":
         st.title("🛠️ Admin Dashboard")
         if st.button("🔄 Refresh"): st.rerun()
-        t1, t2, t3 = st.tabs(["Unit Requests", "Sales Report", "System Reset"])
+        t1, t2, t3, t4 = st.tabs(["Requests", "Sales Report", "Revoke Unblocks", "Reset"])
         with t1:
             for c, u in list(storage["pending_requests"].items()):
                 if st.button(f"Approve {u} for Cabin {c}"):
@@ -314,5 +329,12 @@ else:
         with t2:
             if storage["download_history"]: st.dataframe(pd.DataFrame(storage["download_history"]), use_container_width=True)
         with t3:
-            if st.text_input("Reset Password", type="password") == "Atharva Joshi":
-                if st.button("⚠️ FULL RESET"): storage["locks"].clear(); storage["sold_units"].clear(); storage["download_history"].clear(); st.rerun()
+            for c, units in storage["approved_units"].items():
+                if units:
+                    st.write(f"**Cabin {c}**")
+                    for u in units:
+                        if st.button(f"Revoke {u}", key=f"rev_{c}_{u}"):
+                            storage["approved_units"][c].remove(u); storage["unblock_counts"][c] = max(0, storage["unblock_counts"][c]-1); st.rerun()
+        with t4:
+            if st.text_input("Reset Pass", type="password") == "Atharva Joshi":
+                if st.button("⚠️ RESET"): storage["locks"].clear(); storage["sold_units"].clear(); storage["download_history"].clear(); st.rerun()
