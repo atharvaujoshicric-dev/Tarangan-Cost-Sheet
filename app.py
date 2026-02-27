@@ -75,13 +75,71 @@ def calculate_negotiation(initial_agreement, pkg_discount=0, park_discount=0, us
 # --- 4. PDF GENERATION ---
 def create_pdf(unit_id, floor, carpet, costs, cust_name, date_str, use_parking):
     pdf = FPDF()
-    parking_label = "Parking Under Building" if use_parking else "Parking Outside Building"
-    for copy_label in ["Customer's Copy", "Sales Copy"]:
+    copies = ["Customer's Copy", "Sales Copy"]
+    for copy_label in copies:
         pdf.add_page()
-        pdf.set_font("Arial", 'B', 20); pdf.cell(190, 10, "TARANGAN", ln=True, align='C')
-        pdf.set_font("Arial", 'B', 12); pdf.cell(190, 10, f"Customer: {cust_name}", ln=True)
-        pdf.cell(190, 10, f"Unit: {unit_id} | Floor: {floor} | Parking: {parking_label}", ln=True)
-        pdf.cell(95, 10, "Total Package", border=1); pdf.cell(95, 10, format_indian_currency(costs['Total']), border=1, ln=True)
+        pdf.set_font("Arial", 'I', 8); pdf.set_xy(10, 5); pdf.cell(0, 10, copy_label, ln=True, align='L')
+        try:
+            pdf.image("tarangan_logo.png", x=75, y=10, w=60)
+            pdf.set_y(42); pdf.set_font("Arial", 'B', 14); pdf.cell(190, 10, "COST SHEET", ln=True, align='C')
+        except:
+            pdf.set_y(20); pdf.set_font("Arial", 'B', 20); pdf.cell(190, 10, "TARANGAN", ln=True, align='C')
+            pdf.set_font("Arial", 'B', 14); pdf.cell(190, 10, "COST SHEET", ln=True, align='C')
+
+        pdf.set_font("Arial", '', 10); pdf.cell(190, 10, f"Date: {date_str}", ln=True, align='R')
+        pdf.set_font("Arial", 'B', 12); display_name = cust_name if cust_name.strip() else "____________________"
+        pdf.cell(190, 10, f"Customer Name: {display_name}", ln=True)
+        pdf.cell(190, 10, f"Unit No: {unit_id} | Floor: {floor} | Carpet: {carpet} sqft", ln=True)
+        pdf.line(10, pdf.get_y(), 200, pdf.get_y()); pdf.ln(5)
+        
+        pdf.set_font("Arial", 'B', 11); pdf.cell(95, 10, "Description", border=1, align='C'); pdf.cell(95, 10, "Amount (Rs.)", border=1, ln=True, align='C')
+        pdf.set_font("Arial", '', 11)
+        rows = [
+            ["Agreement Value", format_indian_currency(costs['Final Agreement'])],
+            [f"Stamp Duty ({int(costs['SD_Pct'])}%)", format_indian_currency(costs['Stamp Duty'])],
+            [f"GST ({int(costs['GST_Pct'])}%)", format_indian_currency(costs['GST'])],
+            ["Registration", format_indian_currency(costs['Registration'])]
+        ]
+        for r in rows:
+            pdf.cell(95, 10, r[0], border=1, align='C'); pdf.cell(95, 10, r[1], border=1, ln=True, align='C')
+        
+        pdf.set_font("Arial", 'B', 13); pdf.cell(95, 12, "ALL INCLUSIVE TOTAL", border=1, align='C'); pdf.cell(95, 12, format_indian_currency(costs['Total']), border=1, ln=True, align='C')
+        
+        try:
+            words = num2words(costs['Total'], lang='en_IN').title().replace(",", "")
+            pdf.set_font("Arial", 'B', 9); pdf.ln(2); pdf.multi_cell(190, 8, f"Amount in words: Rupees {words} Only")
+        except: pass
+        
+        pdf.ln(2); pdf.set_font("Arial", 'B', 8); pdf.cell(0, 5, "TERMS & CONDITIONS:", ln=True); pdf.set_font("Arial", '', 6.0)
+        tc_lines = [
+            "1. Advocate charges will be Rs. 15,000/-.",
+            "2. Agreement to be executed & registered within 15 days from the date of booking.",
+            "3. The total cost mentioned here is all inclusive of GST, Registration, Stamp Duty and Legal charges",
+            "4. GST, Stamp Duty, Registration and all applicable government charges are as per the current rates, and in future may change as per government notification which would be borne by the customer.",
+            "5. Above areas are shown in square feet only to make it easy for the purchaser to understand. The sale of the said unit is on the basis of RERA carpet area only.",
+            "6. All legal documents will be executed in square meter only.",
+            "7. Subject to PCMC jurisdiction.",
+            "8. Society Maintenance at Rs. 3 per sq.ft. per month for 2 years and will be taken at the time of possession.",
+            "9. Loan facility available from all leading banks and home loan sanctioning is customers responsibility, developer however will assist in the process.",
+            "10. The promoters reserve the right to change the above prices and the offer given at any time without prior notice. No verbal commitments to be accepted post booking.",
+            "11. Booking is non-transferable.",
+            "12. The information on this paper is provided in good faith and does not constitute part of the contract.",
+            "13. Government taxes will be applicable at actual. Also, any other taxes not mentioned herein if levied later would be payable at actuals by the purchaser.",
+            "14. Documents required: PAN Card, Adhar Card, Photocopy.",
+            "15. If an external bank is opted for loan processing, an additional charge of Rs. 25,000/- shall be applicable and payable by the purchaser."
+        ]
+        for line in tc_lines: pdf.multi_cell(0, 3.2, line)
+        
+        page_height, footer_y = pdf.h, pdf.h - 18 - 32
+        pdf.set_y(footer_y)
+        try:
+            pdf.image("mahalaxmi_logo.png", x=10, y=footer_y, h=15); pdf.image("bw_logo.png", x=35, y=footer_y, h=15)
+        except:
+            pdf.set_font("Arial", 'I', 7); pdf.set_xy(10, footer_y); pdf.cell(60, 10, "[Logos Here]", ln=0)
+        pdf.set_xy(0, footer_y + 5); pdf.set_font("Arial", 'B', 12); pdf.cell(210, 10, "Contact: 080 6452 3034", align='C')
+        pdf.set_xy(150, footer_y); pdf.cell(45, 18, "", border=1)
+        pdf.set_xy(150, footer_y + 19); pdf.set_font("Arial", '', 7); pdf.cell(45, 5, "Customer Signature", align='C')
+
     return pdf.output(dest='S').encode('latin-1')
 
 # --- 5. UI SETUP ---
