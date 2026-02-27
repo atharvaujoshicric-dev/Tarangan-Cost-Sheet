@@ -22,7 +22,7 @@ except ImportError:
 SENDER_EMAIL = "atharvaujoshi@gmail.com"
 SENDER_NAME = "Tarangan Cost Sheet" 
 APP_PASSWORD = "nybl zsnx zvdw edqr"
-RECEIVER_EMAIL = ""
+RECEIVER_EMAIL = "spydarr1106@gmail.com"
 
 # --- HELPER FUNCTIONS ---
 def clean_numeric(value):
@@ -201,11 +201,9 @@ else:
             
             st.info(f"Customer: {cust_name} | Target: {assigned_id}")
 
-            # --- SEARCH & AUTO-COLLAPSE GRID ---
             if "search_id_input" not in st.session_state: st.session_state.search_id_input = ""
             search_id = st.session_state.search_id_input.upper()
 
-            # Grid collapses if search_id exists
             with st.expander("📁 View Inventory Grid", expanded=(not search_id)):
                 grid_cols = st.columns(6)
                 for idx, row in inventory.iterrows():
@@ -220,44 +218,51 @@ else:
                 match = inventory[inventory['ID'].astype(str).str.upper() == search_id]
                 if not match.empty:
                     row = match.iloc[0]
-                    use_p = st.checkbox("Include Parking")
-                    res = calculate_negotiation(clean_numeric(row.get('Agreement Value', 0)), 0, 0, use_p, False)
                     
-                    # --- RESTORED OLD ONSCREEN COST SHEET ---
+                    # --- RESTORED DISCOUNT & FEMALE OPTIONS ---
+                    c1, c2, c3 = st.columns(3)
+                    with c1: use_p = st.checkbox("Include Parking", value=True)
+                    with c2: is_fem = st.checkbox("Female Owner (6% SD)")
+                    with c3: pkg_disc = st.number_input("Package Discount", value=0, step=5000)
+                    
+                    park_disc = st.number_input("Parking Discount", value=0, step=5000) if use_p else 0
+                    
+                    res = calculate_negotiation(clean_numeric(row.get('Agreement Value', 0)), pkg_disc, park_disc, use_p, is_fem)
+                    
+                    # --- UPDATED RECEIPT STYLE COST SHEET ---
                     st.markdown(f"""
-                        <div style="background:white; padding:30px; border:2px solid black; color:black; font-family:monospace;">
-                            <h2 style="text-align:center; margin-bottom:5px;">TARANGAN</h2>
-                            <p style="text-align:center; margin-top:0;">COST SHEET</p>
-                            <hr>
-                            <p><b>Customer Name:</b> {cust_name}</p>
-                            <p><b>Unit No:</b> {search_id} | <b>Floor:</b> {row.get('Floor','N/A')} | <b>Carpet:</b> {row.get('CARPET','N/A')} sqft</p>
-                            <p><b>Parking:</b> {res['Parking Text']}</p>
-                            <table style="width:100%; border-collapse: collapse;">
-                                <tr style="border-bottom:1px solid black;">
-                                    <th style="text-align:left;">Description</th>
-                                    <th style="text-align:right;">Amount (Rs.)</th>
-                                </tr>
-                                <tr><td>Agreement Value</td><td style="text-align:right;">{format_indian_currency(res['Final Agreement'])}</td></tr>
-                                <tr><td>Stamp Duty ({int(res['SD_Pct'])}%)</td><td style="text-align:right;">{format_indian_currency(res['Stamp Duty'])}</td></tr>
-                                <tr><td>GST ({int(res['GST_Pct'])}%)</td><td style="text-align:right;">{format_indian_currency(res['GST'])}</td></tr>
-                                <tr><td>Registration</td><td style="text-align:right;">30,000</td></tr>
-                                <tr style="border-top:2px solid black; font-weight:bold;">
-                                    <td>ALL INCLUSIVE TOTAL</td>
-                                    <td style="text-align:right;">{format_indian_currency(res['Total'])}</td>
-                                </tr>
-                            </table>
+                        <div style="background:#fffef0; padding:20px; border:1px solid #ddd; border-top:10px solid #222; max-width:400px; color:black; font-family:'Courier New', Courier, monospace; box-shadow: 2px 2px 10px rgba(0,0,0,0.1); margin:auto;">
+                            <h2 style="text-align:center; margin-bottom:0;">TARANGAN</h2>
+                            <p style="text-align:center; font-size:12px; margin-top:0;">*** BOOKING RECEIPT ***</p>
+                            <p style="text-align:center; font-size:10px;">Date: {datetime.datetime.now().strftime("%d/%m/%Y %H:%M")}</p>
+                            <p>---------------------------------</p>
+                            <p><b>CUSTOMER:</b> {cust_name}</p>
+                            <p><b>UNIT NO:</b> {search_id}</p>
+                            <p><b>FLOOR  :</b> {row.get('Floor','N/A')}</p>
+                            <p><b>CARPET :</b> {row.get('CARPET','N/A')} SQFT</p>
+                            <p>---------------------------------</p>
+                            <div style="display:flex; justify-content:space-between;"><span>AGREEMENT VAL:</span><span>{format_indian_currency(res['Final Agreement'])}</span></div>
+                            <div style="display:flex; justify-content:space-between;"><span>STAMP DUTY ({int(res['SD_Pct'])}%):</span><span>{format_indian_currency(res['Stamp Duty'])}</span></div>
+                            <div style="display:flex; justify-content:space-between;"><span>GST ({int(res['GST_Pct'])}%):</span><span>{format_indian_currency(res['GST'])}</span></div>
+                            <div style="display:flex; justify-content:space-between;"><span>REGISTRATION :</span><span>30,000</span></div>
+                            <p>---------------------------------</p>
+                            <div style="display:flex; justify-content:space-between; font-weight:bold; font-size:18px;"><span>TOTAL ALL IN:</span><span>{format_indian_currency(res['Total'])}</span></div>
+                            <p>---------------------------------</p>
+                            <p style="font-size:10px; text-align:center;">PARKING: {res['Parking Text']}</p>
+                            <p style="text-align:center; margin-top:20px;">THANK YOU!</p>
                         </div>
                     """, unsafe_allow_html=True)
                     
-                    col_act1, col_act2, col_act3 = st.columns(3)
-                    if col_act1.button("✅ Finalize & Download"):
+                    st.write("")
+                    col_act1, col_act2 = st.columns(2)
+                    if col_act1.button("✅ Finalize & Send Email"):
                         pdf_bytes = create_pdf(search_id, row.get('Floor','N/A'), row.get('CARPET','N/A'), res, cust_name, "28/02/2026", use_p)
                         details = {"Unit No": search_id, "Customer Name": cust_name, "Total": format_indian_currency(res['Total'])}
                         if send_email(RECEIVER_EMAIL, pdf_bytes, f"{search_id}.pdf", details):
                             storage["sold_units"].add(search_id); storage["download_history"].append(details)
                             reset_cabin_session(my_cabin); st.session_state.search_id_input = ""; st.rerun()
                     
-                    if col_act2.button("🔓 Release Unit"):
+                    if col_act2.button("🔓 Release Unit Selection"):
                         st.session_state.search_id_input = ""; st.rerun()
 
             st.write("---")
