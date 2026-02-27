@@ -171,12 +171,13 @@ def release_unit_callback(unit_to_release):
     if unit_to_release in storage["locks"]: del storage["locks"][unit_to_release]
     st.session_state.search_id_input = ""
 
-# --- 6. LOGIN ---
+# --- 6. LOGIN SYSTEM ---
 if 'authenticated' not in st.session_state: st.session_state.authenticated = False
 
 if not st.session_state.authenticated:
     st.title("🔐 Tarangan Login")
-    u, p = st.text_input("Username"), st.text_input("Password", type="password")
+    u = st.text_input("Username")
+    p = st.text_input("Password", type="password")
     if st.button("Login"):
         creds = {"Tarangan": "Tarangan@0103", "Sales": "Sales@2026", "GRE": "Gre@2026", "Manager": "Manager@2026"}
         if u in creds and p == creds[u]:
@@ -186,7 +187,7 @@ if not st.session_state.authenticated:
 else:
     if st.sidebar.button("Logout"): st.session_state.authenticated = False; st.rerun()
 
-    # --- GRE ---
+    # --- GRE DASHBOARD ---
     if st.session_state.role == "GRE":
         st.title("📝 Stage 1: GRE Entry")
         with st.form("gre"):
@@ -194,10 +195,10 @@ else:
             if st.form_submit_button("Submit"):
                 if name and name.upper() not in [c.upper() for c in storage["waiting_customers"]]:
                     storage["waiting_customers"].append(name)
-                    st.success(f"Added {name}")
+                    st.success(f"Added {name} to list.")
                 else: st.warning("Name duplicate or empty.")
 
-    # --- MANAGER ---
+    # --- MANAGER DASHBOARD ---
     elif st.session_state.role == "Manager":
         st.title("👔 Stage 2: Manager Assignment")
         col1, col2 = st.columns(2)
@@ -211,7 +212,7 @@ else:
                     st.rerun()
         with col2: st.table([{"Cabin": k, "Customer": v if v else "Free"} for k, v in storage["booths"].items()])
 
-    # --- SALES ---
+    # --- SALES DASHBOARD ---
     elif st.session_state.role == "Sales":
         st.title("🏙️ Stage 3: Sales Portal")
         if st.button("🔄 Refresh Inventory"): st.rerun()
@@ -239,18 +240,19 @@ else:
                         <div style="
                             background: #121212;
                             border: 2px solid #D4AF37;
-                            border-radius: 15px;
-                            padding: 12px;
+                            border-radius: 12px;
+                            padding: 10px;
                             text-align: center;
-                            box-shadow: 0 4px 15px rgba(212, 175, 55, 0.3);
-                            transition: transform 0.3s;">
-                            <p style="color: #D4AF37; font-size: 10px; font-weight: bold; margin: 0; letter-spacing: 1px;">TOP CHOICE #{i+1}</p>
-                            <p style="color: white; font-size: 20px; font-weight: 900; margin: 5px 0;">{uid}</p>
-                            <div style="background: rgba(0, 255, 0, 0.1); border-radius: 20px; display: inline-block; padding: 2px 10px;">
-                                <p style="color: #00FF00; font-size: 10px; margin: 0; font-weight: bold;">● {available_hits[uid]} LIVE VIEWS</p>
+                            box-shadow: 0 4px 10px rgba(212, 175, 55, 0.3);">
+                            <p style="color: #D4AF37; font-size: 9px; font-weight: bold; margin: 0; letter-spacing: 1px;">TOP CHOICE #{i+1}</p>
+                            <p style="color: white; font-size: 18px; font-weight: 900; margin: 3px 0;">{uid}</p>
+                            <div style="background: rgba(0, 255, 0, 0.1); border-radius: 20px; display: inline-block; padding: 1px 8px;">
+                                <p style="color: #00FF00; font-size: 9px; margin: 0; font-weight: bold;">● {available_hits[uid]} LIVE VIEWS</p>
                             </div>
                         </div>
                         """, unsafe_allow_html=True)
+
+            search_id = st.session_state.get("search_id_input", "").upper()
             
             # --- AUTO-COLLAPSE GRID ---
             with st.expander("📁 Inventory Selection Grid", expanded=(search_id == "")):
@@ -317,21 +319,33 @@ else:
                     with col_r:
                         st.button("❌ Close / Release", on_click=release_unit_callback, args=(search_id,))
 
-    # --- ADMIN ---
+    # --- ADMIN DASHBOARD ---
     elif st.session_state.role == "Tarangan":
         st.title("🛠️ Admin Master Dashboard")
-        if st.button("🔄 Refresh System"): st.rerun()
+        if st.button("🔄 Refresh System Data"): st.rerun()
+        
         t1, t2, t3 = st.tabs(["Activity Tracker", "Booking Management", "System Reset"])
+        
         with t1:
-            if storage["activity_log"]: st.dataframe(pd.DataFrame(storage["activity_log"]), use_container_width=True)
+            if storage["activity_log"]:
+                st.dataframe(pd.DataFrame(storage["activity_log"]), use_container_width=True)
+        
         with t2:
+            st.subheader("📋 Booked Flats Detailed Data")
             if storage["download_history"]:
                 df_disp = pd.DataFrame(storage["download_history"])
                 st.dataframe(df_disp, use_container_width=True)
+                st.write("---")
                 unit_to_unblock = st.selectbox("Select Unit ID to restore:", list(storage["sold_units"]))
                 if st.button("Unblock & Restore Unit"):
-                    storage["sold_units"].remove(unit_to_unblock); st.rerun()
+                    storage["sold_units"].remove(unit_to_unblock)
+                    storage["download_history"] = [item for item in storage["download_history"] if item.get("Unit ID") != unit_to_unblock]
+                    st.success(f"Unit {unit_to_unblock} restored.")
+                    st.rerun()
+
         with t3:
             if st.button("⚠️ FULL SYSTEM RESET"):
                 storage["locks"].clear(); storage["sold_units"].clear(); storage["download_history"].clear()
-                storage["booths"] = {letter: None for letter in "ABCDEFGHIJ"}; st.rerun()
+                storage["activity_log"].clear(); storage["waiting_customers"].clear(); storage["unit_hits"].clear()
+                storage["booths"] = {letter: None for letter in "ABCDEFGHIJ"}
+                st.rerun()
