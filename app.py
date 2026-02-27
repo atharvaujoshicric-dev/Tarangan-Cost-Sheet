@@ -257,124 +257,115 @@ else:
     # --- SALES DASHBOARD ---
     # --- SALES DASHBOARD ---
     elif st.session_state.role == "Sales":
-        # 1. INITIALIZE ALL VARIABLES TO PREVENT NAMEERROR
+        # 1. INITIALIZE ALL VARIABLES AT THE TOP
         if "search_id_input" not in st.session_state:
             st.session_state.search_id_input = ""
         
-        assigned_id = st.session_state.search_id_input # Current selected unit
+        # This ensures search_id is ALWAYS defined before any IF statements
+        search_id = st.session_state.search_id_input.upper()
+        assigned_id = search_id 
+        
         my_cabin = st.selectbox("Select Your Cabin:", list("ABCDEFGHIJ"), key="sales_cabin_sel")
-        cust_name = storage["booths"].get(my_cabin) # Get customer from Manager's assignment
+        cust_name = storage["booths"].get(my_cabin)
+        ist_now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=5, minutes=30)))
         
         st.title("🏙️ Stage 3: Sales Portal")
 
         if not cust_name:
             st.warning(f"Cabin {my_cabin} is currently empty. Please wait for the Manager to assign a customer.")
         else:
-            # 2. SAFE DISPLAY (Only show assigned_id if it exists)
+            # 2. STATUS DISPLAY
             status_msg = f"Serving: **{cust_name}**"
-            if assigned_id:
-                status_msg += f" | Currently Discussing: **{assigned_id}**"
-            
+            if search_id:
+                status_msg += f" | Currently Discussing: **{search_id}**"
             st.success(status_msg)
 
-            # --- Inventory Selection Grid ---
-            inventory = load_data()
-            # ... [Rest of your inventory grid logic] ...
-
-            if search_id:
-                match = inventory[inventory['ID'].astype(str).str.upper() == search_id]
-                if not match.empty:
-                    row = match.iloc[0]
-            st.success(f"Serving: {cust_name} | Assigned: {assigned_id}")
-
-            # --- UNBLOCK REQUEST LOGIC (2 CHANCES) ---
-            chances_used = storage["unblock_counts"].get(my_cabin, 0)
+            # 3. UNBLOCK REQUEST LOGIC
+            chances_used = storage.get("unblock_counts", {}).get(my_cabin, 0)
             st.write(f"Unblock Chances Used: **{chances_used}/2**")
 
             if chances_used < 2:
                 req_id = st.text_input("Request Unblock for Unit ID:").upper()
                 if st.button("Submit Request"):
                     if req_id:
+                        if "pending_requests" not in storage: storage["pending_requests"] = {}
                         storage["pending_requests"][my_cabin] = req_id
                         st.info(f"Request for {req_id} sent to Admin.")
             else:
-                st.error("Maximum (2) unblock chances used for this customer.")
+                st.error("Maximum (2) unblock chances used.")
 
             st.write("---")
 
-            search_id = st.session_state.get("search_id_input", "").upper()
+            # 4. INVENTORY GRID
+            inventory = load_data()
             with st.expander("📁 Inventory Selection Grid", expanded=(search_id == "")):
                 grid_cols = st.columns(6)
-                for idx, row in inventory.iterrows():
-                    uid = str(row['ID']).upper()
-                    # A unit is clickable ONLY IF it is the assigned one OR approved by admin
-                    is_unlocked = (uid == assigned_id) or (uid in storage["approved_units"].get(my_cabin, []))
-                    is_sold = uid in storage["sold_units"]
+                for idx, row_data in inventory.iterrows():
+                    uid = str(row_data['ID']).upper()
+                    
+                    # Logic for unlocking units
+                    approved_list = storage.get("approved_units", {}).get(my_cabin, [])
+                    is_unlocked = (uid == search_id) or (uid in approved_list)
+                    is_sold = uid in storage.get("sold_units", set())
                     
                     label = f"🟡 {uid}" if is_unlocked else (f"⛔ SOLD" if is_sold else f"🔒 {uid}")
-                    if grid_cols[idx % 6].button(label, key=f"btn_{uid}", disabled=not is_unlocked):
+                    if grid_cols[idx % 6].button(label, key=f"btn_{uid}", disabled=(is_sold and uid != search_id)):
                         st.session_state.search_id_input = uid
                         st.rerun()
 
+            # 5. THE COST SHEET (Triggered after selection)
             if search_id:
-                # [KEEP EXISTING COST SHEET & CALCULATE_NEGOTIATION LOGIC HERE]
-                # ... (rest of the cost sheet display as provided previously)
-                st.button("❌ Close / Release", on_click=lambda: st.session_state.update({"search_id_input": ""}))
+                match = inventory[inventory['ID'].astype(str).str.upper() == search_id]
+                if not match.empty:
+                    row = match.iloc[0]
+                    
+                    # Negotiation Inputs
+                    c1, c2, c3 = st.columns(3)
+                    with c1: d_val = st.number_input("Pkg Discount:", value=0, step=1000)
+                    with c2: 
+                        use_p = st.checkbox("Include Parking")
+                        p_val = st.number_input("Park Disc:", value=0) if use_p else 0
+                    with c3: is_f = st.checkbox("Female Registry")
 
-                # --- RESTORED ORIGINAL MONOSPACE COST SHEET ---
-                st.markdown(f"""
-                    <div style="background:white; padding:30px; border:2px solid black; color:black; font-family:monospace;">
-                        <div style="text-align:right;">Date: {ist_now.strftime("%d/%m/%Y")}</div>
-                        <h2 style="text-align:center; border-bottom:2px solid black;">TARANGAN</h2>
-                        <p><b>Customer:</b> {cust_name}</p>
-                        <p><b>Unit:</b> {search_id} | <b>Floor:</b> {row.get('Floor','N/A')} | <b>Carpet:</b> {row.get('CARPET','N/A')} sqft</p>
-                        <p><b>Parking Status:</b> {park_loc_label}</p>
-                        <div style="display:flex; justify-content:space-between; border-bottom:1px dotted #888; padding:5px 0;"><span>Agreement</span><span>Rs. {format_indian_currency(res['Final Agreement'])}</span></div>
-                        <div style="display:flex; justify-content:space-between; border-bottom:1px dotted #888; padding:5px 0;"><span>Stamp Duty ({int(res['SD_Pct'])}%)</span><span>Rs. {format_indian_currency(res['Stamp Duty'])}</span></div>
-                        <div style="display:flex; justify-content:space-between; border-bottom:1px dotted #888; padding:5px 0;"><span>GST ({int(res['GST_Pct'])}%)</span><span>Rs. {format_indian_currency(res['GST'])}</span></div>
-                        <div style="display:flex; justify-content:space-between; border-bottom:1px dotted #888; padding:5px 0;"><span>Registration</span><span>Rs. {format_indian_currency(res['Registration'])}</span></div>
-                        <div style="display:flex; justify-content:space-between; font-weight:bold; font-size:1.2em; border-top:2px solid black; margin-top:10px; padding:10px 0;"><span>TOTAL</span><span>Rs. {format_indian_currency(res['Total'])}</span></div>
-                        <div style="font-style:italic; margin-top:5px;">Rupees {num2words(res['Total'], lang='en_IN').title().replace(",","")} Only</div>
-                        <div style="color:red; font-weight:bold; margin-top:10px;">Total Discount Availed: Rs. {format_indian_currency(res['Combined_Discount'])}</div>
-                    </div>
-                """, unsafe_allow_html=True)
-                
-                st.write("")
-                col_act1, col_act2 = st.columns(2)
-                if col_act1.button("✅ Finalize & Send"):
-                        pdf_bytes = create_pdf(search_id, row.get('Floor','N/A'), row.get('CARPET','N/A'), res, cust_name, ist_now.strftime("%d/%m/%Y"), use_p)
-                        
-                        # --- CAPTURE ALL DATA FOR REPORT ---
-                        details = {
-                            "Date": ist_now.strftime("%d/%m/%Y %H:%M"),
-                            "Sales Person": st.session_state.role, # Or specific name if you have it
-                            "Cabin": my_cabin,
-                            "Customer Name": cust_name,
-                            "Unit No": search_id,
-                            "Floor": row.get('Floor','N/A'),
-                            "Carpet Area": row.get('CARPET','N/A'),
-                            "Agreement Value": res['Final Agreement'],
-                            "Stamp Duty": res['Stamp Duty'],
-                            "GST": res['GST'],
-                            "Registration": res['Registration'],
-                            "Total Package": res['Total'],
-                            "Discount Given": res['Combined_Discount'],
-                            "Parking": "Yes" if use_p else "No"
-                        }
-                        
-                        if send_email(RECEIVER_EMAIL, pdf_bytes, f"{search_id}.pdf", details):
+                    # Calculate Costs
+                    res = calculate_negotiation(clean_numeric(row.get('Agreement Value', 0)), d_val, p_val, use_p, is_f)
+                    park_loc_label = "Parking Under Building" if use_p else "1 Car Parking"
+
+                    # DISPLAY COST SHEET
+                    st.markdown(f"""
+                        <div style="background:white; padding:30px; border:2px solid black; color:black; font-family:monospace;">
+                            <div style="text-align:right;">Date: {ist_now.strftime("%d/%m/%Y")}</div>
+                            <h2 style="text-align:center; border-bottom:2px solid black;">TARANGAN</h2>
+                            <p><b>Customer:</b> {cust_name}</p>
+                            <p><b>Unit:</b> {search_id} | <b>Floor:</b> {row.get('Floor','N/A')} | <b>Carpet:</b> {row.get('CARPET','N/A')} sqft</p>
+                            <p><b>Parking Status:</b> {park_loc_label}</p>
+                            <div style="display:flex; justify-content:space-between; border-bottom:1px dotted #888; padding:5px 0;"><span>Agreement</span><span>Rs. {format_indian_currency(res['Final Agreement'])}</span></div>
+                            <div style="display:flex; justify-content:space-between; border-bottom:1px dotted #888; padding:5px 0;"><span>Stamp Duty ({int(res['SD_Pct'])}%)</span><span>Rs. {format_indian_currency(res['Stamp Duty'])}</span></div>
+                            <div style="display:flex; justify-content:space-between; border-bottom:1px dotted #888; padding:5px 0;"><span>GST ({int(res['GST_Pct'])}%)</span><span>Rs. {format_indian_currency(res['GST'])}</span></div>
+                            <div style="display:flex; justify-content:space-between; border-bottom:1px dotted #888; padding:5px 0;"><span>Registration</span><span>Rs. {format_indian_currency(res['Registration'])}</span></div>
+                            <div style="display:flex; justify-content:space-between; font-weight:bold; font-size:1.2em; border-top:2px solid black; margin-top:10px; padding:10px 0;"><span>TOTAL</span><span>Rs. {format_indian_currency(res['Total'])}</span></div>
+                            <div style="font-style:italic; margin-top:5px;">Rupees {num2words(res['Total'], lang='en_IN').title().replace(",","")} Only</div>
+                        </div>
+                    """, unsafe_allow_html=True)
+
+                    # Action Buttons
+                    col_act1, col_act2 = st.columns(2)
+                    with col_act1:
+                        if st.button("✅ Finalize & Book"):
+                            # Save to history and mark as sold
                             storage["sold_units"].add(search_id)
-                            storage["download_history"].append(details) # Saves the full dictionary
-                            reset_cabin_session(my_cabin)
+                            storage["download_history"].append({
+                                "Unit No": search_id, "Customer": cust_name, "Total Package": res['Total'], "Sales Person": st.session_state.role
+                            })
+                            st.success("Unit Booked!")
                             st.session_state.search_id_input = ""
-                            st.success("Booking Confirmed & Email Sent!")
                             st.rerun()
-                
-                if col_act2.button("❌ Close / Release"):
-                    st.session_state.search_id_input = ""; st.rerun()
+                    with col_act2:
+                        if st.button("❌ Close / Release"):
+                            st.session_state.search_id_input = ""
+                            st.rerun()
 
     # --- ADMIN DASHBOARD ---
-    # --- ADMIN ---
     elif st.session_state.role == "Tarangan":
         st.title("🛠️ Admin Master Control")
         if st.sidebar.button("🔄 Global Refresh"): st.rerun()
