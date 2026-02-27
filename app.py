@@ -138,6 +138,7 @@ def create_pdf(unit_id, floor, carpet, costs, cust_name, date_str, use_parking):
         pdf.set_xy(150, footer_y + 19); pdf.set_font("Arial", '', 7); pdf.cell(45, 5, "Customer Signature", align='C')
 
     return pdf.output(dest='S').encode('latin-1')
+
 # --- 5. UI SETUP ---
 st.set_page_config(page_title="Tarangan Dashboard", layout="wide")
 
@@ -158,7 +159,7 @@ def download_dialog(unit_id, floor, carpet, costs, cust_name, date_str, use_park
             storage["download_history"].append({"Timestamp": ist_log_time, "Sales": sales_name, "Unit": unit_id, "Customer": cust_name, "Total": costs['Total']})
             storage["sold_units"].add(unit_id)
             log_activity(st.session_state.user_id, "BOOKING", f"Unit {unit_id} booked for {cust_name}")
-            st.success("Unit Blocked!")
+            st.success("Unit Booked!")
             st.download_button("📥 Save PDF", pdf_bytes, f"Tarangan_{unit_id}.pdf", "application/pdf")
 
 def release_unit_callback(unit_to_release):
@@ -173,25 +174,14 @@ if not st.session_state.authenticated:
     u = st.text_input("Username")
     p = st.text_input("Password", type="password")
     if st.button("Login"):
-        # Map credentials directly
-        creds = {
-            "Tarangan": "Tarangan@0103",
-            "Sales": "Sales@2026",
-            "GRE": "Gre@2026",
-            "Manager": "Manager@2026"
-        }
+        creds = {"Tarangan": "Tarangan@0103", "Sales": "Sales@2026", "GRE": "Gre@2026", "Manager": "Manager@2026"}
         if u in creds and p == creds[u]:
-            st.session_state.authenticated = True
-            st.session_state.role = u # Role matches Username for logic
-            st.session_state.user_id = u
+            st.session_state.authenticated, st.session_state.role, st.session_state.user_id = True, u, u
             log_activity(u, "LOGIN", "Successful login")
             st.rerun()
-        else:
-            st.error("Invalid Username or Password")
+        else: st.error("Invalid credentials.")
 else:
-    if st.sidebar.button("Logout"):
-        log_activity(st.session_state.user_id, "LOGOUT", "User logged out")
-        st.session_state.authenticated = False; st.rerun()
+    if st.sidebar.button("Logout"): st.session_state.authenticated = False; st.rerun()
 
     # --- GRE DASHBOARD ---
     if st.session_state.role == "GRE":
@@ -202,7 +192,7 @@ else:
                 if name and name.upper() not in [c.upper() for c in storage["waiting_customers"]]:
                     storage["waiting_customers"].append(name)
                     st.success(f"Added {name} to list.")
-                else: st.warning("Name already in list or empty.")
+                else: st.warning("Name duplicate or empty.")
 
     # --- MANAGER DASHBOARD ---
     elif st.session_state.role == "Manager":
@@ -221,6 +211,11 @@ else:
     # --- SALES DASHBOARD ---
     elif st.session_state.role == "Sales":
         st.title("🏙️ Stage 3: Sales Portal")
+        
+        # Refresh Button
+        if st.button("🔄 Refresh Inventory"):
+            st.rerun()
+
         my_cabin = st.selectbox("Select Your Cabin:", list("ABCDEFGHIJ"))
         cust_name = storage["booths"].get(my_cabin)
         
@@ -230,33 +225,42 @@ else:
             st.success(f"Serving: {cust_name}")
             inventory = load_data()
             
-            # Hot Selling Top View (6 cols)
+            # Hot Selling Identification
             hot_list = [u for u, c in sorted(storage["unit_hits"].items(), key=lambda x: x[1], reverse=True)[:3]]
-            if hot_list:
-                st.subheader("🔥 Top Searched Units")
-                h_cols = st.columns(6)
-                for i, uid in enumerate(hot_list):
-                    h_cols[i].warning(f"Unit {uid}")
-
-            # 6-Column Grid
+            
             search_id = st.session_state.get("search_id_input", "").upper()
+            
+            # Inventory Grid (6 units per line)
             with st.expander("📁 Inventory Selection Grid", expanded=(search_id == "")):
                 grid_cols = st.columns(6)
                 for idx, row in inventory.iterrows():
-                    uid = str(row['ID'])
+                    uid = str(row['ID']).upper()
                     is_sold = uid in storage["sold_units"]
                     is_busy = uid in storage["locks"] and storage["locks"][uid] != st.runtime.scriptrunner.get_script_run_ctx().session_id
+                    is_hot = uid in hot_list
+                    is_restricted = uid in ["A-705", "A-1205"]
                     
                     with grid_cols[idx % 6]:
-                        lbl = f"🟢 {uid}"
-                        if is_sold: lbl = f"✅ {uid}"
-                        elif is_busy: lbl = f"🟡 BUSY"
-                        if st.button(lbl, key=f"btn_{uid}", use_container_width=True, disabled=is_sold or is_busy):
+                        # Default Yellow
+                        lbl = f"🟡 {uid}"
+                        
+                        if is_sold:
+                            lbl = f"🟢 {uid}" # Green for Booked
+                        elif is_busy:
+                            lbl = f"🔴 BUSY"   # Red for Busy
+                        elif is_hot:
+                            lbl = f"🟠 {uid}" # Orange for Hot
+                        
+                        # Apply restriction and state
+                        if st.button(lbl, key=f"btn_{uid}", use_container_width=True, disabled=is_sold or is_busy or is_restricted):
                             st.session_state.search_id_input = uid
                             storage["unit_hits"][uid] = storage["unit_hits"].get(uid, 0) + 1
                             st.rerun()
+                
+                if "A-705" in inventory['ID'].values or "A-1205" in inventory['ID'].values:
+                    st.caption("Note: Units A-705 and A-1205 are locked by Management.")
 
-            # Original Monochrome Cost Sheet Logic
+            # On-screen Cost Sheet (Original monochrome logic)
             if search_id:
                 match = inventory[inventory['ID'].astype(str).str.upper() == search_id]
                 if not match.empty:
@@ -309,9 +313,12 @@ else:
                 df_log = pd.DataFrame(storage["activity_log"])
                 st.dataframe(df_log, use_container_width=True)
                 output = io.BytesIO()
-                with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                    df_log.to_excel(writer, index=False)
-                st.download_button("📊 Export Log to Excel", output.getvalue(), "Tarangan_Activity.xlsx")
+                try:
+                    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                        df_log.to_excel(writer, index=False)
+                    st.download_button("📊 Export Log to Excel", output.getvalue(), "Tarangan_Activity.xlsx")
+                except:
+                    st.download_button("📊 Export as CSV", df_log.to_csv(index=False).encode('utf-8'), "Activity_Log.csv")
         with t2:
             if st.button("⚠️ FULL SYSTEM RESET"):
                 storage["locks"].clear(); storage["sold_units"].clear(); storage["waiting_customers"].clear()
