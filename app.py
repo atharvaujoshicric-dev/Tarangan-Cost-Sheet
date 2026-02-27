@@ -22,7 +22,7 @@ except ImportError:
 SENDER_EMAIL = "atharvaujoshi@gmail.com"
 SENDER_NAME = "Tarangan Cost Sheet" 
 APP_PASSWORD = "nybl zsnx zvdw edqr"
-RECEIVER_EMAIL = "hiteshwar.salunkhe@beyondwalls.com"
+RECEIVER_EMAIL = "spydarr1106@gmail.com"
 
 # --- HELPER FUNCTIONS ---
 def clean_numeric(value):
@@ -104,7 +104,7 @@ CSV_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:cs
 def load_data():
     df = pd.read_csv(CSV_URL); df.columns = [str(c).strip() for c in df.columns]; return df
 
-def create_pdf(unit_id, floor, carpet, costs, cust_name, date_str, use_parking):
+defdef create_pdf(unit_id, floor, carpet, costs, cust_name, date_str, use_parking):
     pdf = FPDF()
     copies = ["Customer's Copy", "Sales Copy"]
     for copy_label in copies:
@@ -295,7 +295,6 @@ else:
                     
                     res = calculate_negotiation(clean_numeric(row.get('Agreement Value', 0)), d_val, p_val, use_p, is_f)
                     
-                    # RESTORED OLD ONSCREEN STYLE
                     st.markdown(f"""
                         <div style="background:white; padding:30px; border:2px solid black; color:black; font-family:monospace;">
                             <div style="text-align:right;">Date: {ist_now.strftime("%d/%m/%Y")}</div>
@@ -316,25 +315,63 @@ else:
                         download_dialog(search_id, row.get('Floor','N/A'), row.get('CARPET','N/A'), res, cust_name, ist_now.strftime("%d/%m/%Y %H:%M"), my_cabin)
                     st.button("❌ Close", on_click=lambda: st.session_state.update({"search_id_input": ""}))
 
-    # --- ADMIN ---
+    # --- ADMIN (TARANGAN ROLE) ---
     elif st.session_state.role == "Tarangan":
-        st.title("🛠️ Admin Dashboard")
-        if st.button("🔄 Refresh"): st.rerun()
-        t1, t2, t3, t4 = st.tabs(["Requests", "Sales Report", "Revoke Unblocks", "Reset"])
+        st.title("🛠️ Admin Master Dashboard")
+        if st.button("🔄 Global Refresh"): st.rerun()
+        
+        # DEFINED TABS CLEARLY
+        t1, t2, t3, t4 = st.tabs(["Unblock Requests", "Full Sales Report", "Revoke Unblocks", "System Reset"])
+        
         with t1:
+            st.subheader("Incoming Unit Requests")
+            if not storage["pending_requests"]:
+                st.info("No pending unblock requests.")
             for c, u in list(storage["pending_requests"].items()):
-                if st.button(f"Approve {u} for Cabin {c}"):
-                    storage["approved_units"][c].append(u); storage["unblock_counts"][c] += 1
-                    del storage["pending_requests"][c]; st.rerun()
+                st.write(f"Cabin **{c}** requests unblock for **{u}**")
+                if st.button(f"Approve {u} for Cabin {c}", key=f"app_{c}_{u}"):
+                    storage["approved_units"][c].append(u)
+                    storage["unblock_counts"][c] += 1
+                    del storage["pending_requests"][c]
+                    st.rerun()
+
         with t2:
-            if storage["download_history"]: st.dataframe(pd.DataFrame(storage["download_history"]), use_container_width=True)
+            st.subheader("Master Sales Record")
+            if storage["download_history"]:
+                st.dataframe(pd.DataFrame(storage["download_history"]), use_container_width=True)
+                csv = pd.DataFrame(storage["download_history"]).to_csv(index=False).encode('utf-8')
+                st.download_button("📊 Export CSV", csv, "Sales_Master.csv", "text/csv")
+            else:
+                st.info("No sales recorded yet.")
+
         with t3:
+            st.subheader("Revoke Approved Units")
+            found_any = False
             for c, units in storage["approved_units"].items():
                 if units:
-                    st.write(f"**Cabin {c}**")
+                    found_any = True
+                    st.write(f"**Cabin {c}:**")
                     for u in units:
-                        if st.button(f"Revoke {u}", key=f"rev_{c}_{u}"):
-                            storage["approved_units"][c].remove(u); storage["unblock_counts"][c] = max(0, storage["unblock_counts"][c]-1); st.rerun()
+                        col_unit, col_rev = st.columns([2, 1])
+                        col_unit.write(f"Unit {u}")
+                        if col_rev.button(f"Revoke {u}", key=f"rev_{c}_{u}"):
+                            storage["approved_units"][c].remove(u)
+                            # Give the salesperson their count back
+                            storage["unblock_counts"][c] = max(0, storage["unblock_counts"][c] - 1)
+                            st.rerun()
+            if not found_any:
+                st.info("No units are currently in unblocked status.")
+
         with t4:
-            if st.text_input("Reset Pass", type="password") == "Atharva Joshi":
-                if st.button("⚠️ RESET"): storage["locks"].clear(); storage["sold_units"].clear(); storage["download_history"].clear(); st.rerun()
+            st.subheader("System Override")
+            if st.text_input("Security Override Password", type="password") == "Atharva Joshi":
+                if st.button("⚠️ WIPE ALL SESSION DATA"):
+                    storage["locks"].clear()
+                    storage["sold_units"].clear()
+                    storage["download_history"].clear()
+                    storage["waiting_customers"].clear()
+                    for b in storage["booths"]: storage["booths"][b] = None
+                    for b in storage["approved_units"]: storage["approved_units"][b] = []
+                    for b in storage["unblock_counts"]: storage["unblock_counts"][b] = 0
+                    st.success("System wiped.")
+                    st.rerun()
