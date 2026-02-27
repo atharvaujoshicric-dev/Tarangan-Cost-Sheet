@@ -44,7 +44,7 @@ def calculate_negotiation(initial_agreement, pkg_discount=0, park_discount=0, us
     sd_pct = 0.06 if is_female else 0.07
     gst_pct = 0.05 if final_agreement > 4500000 else 0.01
     REGISTRATION = 30000 
-    sd_amt = final_agreement * sd_pct
+    sd_amt = round(final_agreement * sd_pct, -2)
     gst_amt = final_agreement * gst_pct
     total_package = final_agreement + sd_amt + gst_amt + REGISTRATION
     return {
@@ -142,76 +142,148 @@ else:
         st.title("📝 GRE Dashboard")
         inventory = load_data()
         allotted = sorted(list(inventory['Customer Allotted'].dropna().unique()))
-        name_sel = st.selectbox("Select Customer:", ["Select"] + allotted)
-        if st.button("Add to Queue"):
-            if name_sel != "Select":
-                storage["waiting_customers"].append(name_sel); storage["visited_customers"].add(name_sel); st.success("Added.")
+        
+        tab_add, tab_manage = st.tabs(["➕ Add Customer", "⚙️ Manage Waiting List"])
+        
+        with tab_add:
+            col_a, col_b = st.columns(2)
+            with col_a:
+                st.subheader("From Allotted List")
+                name_sel = st.selectbox("Select Customer:", ["Select"] + allotted)
+                if st.button("Add Allotted to Queue"):
+                    if name_sel != "Select":
+                        if name_sel not in storage["waiting_customers"]:
+                            storage["waiting_customers"].append(name_sel)
+                            storage["visited_customers"].add(name_sel)
+                            st.success(f"Added {name_sel}")
+                        else: st.warning("Customer already in queue.")
+            
+            with col_b:
+                st.subheader("Walk-in Customer")
+                walkin_name = st.text_input("Enter Walk-in Name:")
+                if st.button("Add Walk-in to Queue"):
+                    if walkin_name.strip():
+                        storage["waiting_customers"].append(walkin_name.strip())
+                        storage["visited_customers"].add(walkin_name.strip())
+                        st.success(f"Added Walk-in: {walkin_name}")
+                    else: st.error("Please enter a name.")
 
+        with tab_manage:
+            if storage["waiting_customers"]:
+                st.subheader("Edit / Change Name")
+                # Option for GRE to change the name
+                edit_idx = st.selectbox("Select Customer to Edit:", range(len(storage["waiting_customers"])), 
+                                        format_func=lambda x: storage["waiting_customers"][x])
+                
+                new_name = st.text_input("Change Name to:", value=storage["waiting_customers"][edit_idx])
+                
+                c1, c2 = st.columns(2)
+                if c1.button("✅ Update Name"):
+                    if new_name.strip():
+                        storage["waiting_customers"][edit_idx] = new_name.strip()
+                        st.success("Name updated.")
+                        st.rerun()
+                
+                if c2.button("🗑️ Remove from Queue"):
+                    storage["waiting_customers"].pop(edit_idx)
+                    st.rerun()
+            else:
+                st.info("The waiting list is currently empty.")
+
+    # --- MANAGER DASHBOARD ---
     # --- MANAGER DASHBOARD ---
     elif st.session_state.role == "Manager":
         st.title("👔 Manager Assignment")
-        col1, col2 = st.columns(2)
+        col1, col2 = st.columns([1, 1.2])
+        
         with col1:
+            st.subheader("Assign Cabin")
             if storage["waiting_customers"]:
-                c_sel = st.selectbox("Assign Customer:", storage["waiting_customers"])
+                sel_c = st.selectbox("Select Customer:", storage["waiting_customers"])
+                # Only show free booths
                 b_avail = [k for k, v in storage["booths"].items() if v is None]
                 if b_avail:
-                    b_sel = st.selectbox("To Cabin:", b_avail)
-                    if st.button("Assign Now"):
-                        storage["booths"][b_sel] = c_sel; storage["waiting_customers"].remove(c_sel); st.rerun()
+                    sel_b = st.selectbox("Assign to Cabin:", b_avail)
+                    if st.button("Confirm Assignment"):
+                        storage["booths"][sel_b] = sel_c
+                        storage["waiting_customers"].remove(sel_c)
+                        st.success(f"Assigned {sel_c} to Cabin {sel_b}")
+                        st.rerun()
+                else:
+                    st.warning("All cabins are currently occupied.")
+            else:
+                st.info("No customers in waiting list.")
+
         with col2:
-            st.subheader("Booth Status")
+            st.subheader("Cabin Status & Controls")
+            # Create a table-like view with action buttons
             for b, c in storage["booths"].items():
                 if c:
-                    st.write(f"**Cabin {b}:** {c}")
-                    if st.button(f"Unassign {b}", key=f"un_{b}"): storage["waiting_customers"].append(c); storage["booths"][b] = None; st.rerun()
-                else: st.write(f"Cabin {b}: 🟢 Free")
-
+                    with st.container():
+                        st.markdown(f"**Cabin {b}:** `{c}`")
+                        c1, c2 = st.columns(2)
+                        # Option 1: Reassign (Send back to waiting list)
+                        if c1.button(f"🔄 Reassign {b}", key=f"re_{b}", help="Moves customer back to waiting list"):
+                            storage["waiting_customers"].append(c)
+                            storage["booths"][b] = None
+                            st.rerun()
+                        # Option 2: Delete (Remove completely)
+                        if c2.button(f"🗑️ Delete {b}", key=f"del_{b}", help="Removes customer from system"):
+                            storage["booths"][b] = None
+                            st.rerun()
+                        st.markdown("---")
+                else:
+                    st.write(f"**Cabin {b}:** 🟢 Free")
     # --- SALES DASHBOARD ---
     elif st.session_state.role == "Sales":
-        st.title("🏙️ Sales Portal")
+        st.title("🏙️ Stage 3: Sales Portal")
         if st.button("🔄 Refresh Data"): st.rerun()
         
-        my_cabin = st.selectbox("Cabin Selection:", list("ABCDEFGHIJ"))
+        my_cabin = st.selectbox("Select Cabin:", list("ABCDEFGHIJ"))
         cust_name = storage["booths"].get(my_cabin)
         
-        if cust_name:
+        if not cust_name:
+            st.warning(f"No customer in Cabin {my_cabin}.")
+        else:
             inventory = load_data()
             token_row = inventory[inventory['Customer Allotted'].astype(str).str.contains(cust_name, case=False, na=False)]
             assigned_id = str(token_row['ID'].values[0]).upper() if not token_row.empty else "NONE"
             
-            st.info(f"Customer: {cust_name} | Assigned: {assigned_id}")
+            st.success(f"Serving: {cust_name} | Assigned: {assigned_id}")
 
-            if "search_id_input" not in st.session_state: st.session_state.search_id_input = ""
-            search_id = st.session_state.search_id_input.upper()
+            # --- UNBLOCK REQUEST LOGIC (2 CHANCES) ---
+            chances_used = storage["unblock_counts"].get(my_cabin, 0)
+            st.write(f"Unblock Chances Used: **{chances_used}/2**")
 
-            with st.expander("📁 Inventory Grid", expanded=(not search_id)):
+            if chances_used < 2:
+                req_id = st.text_input("Request Unblock for Unit ID:").upper()
+                if st.button("Submit Request"):
+                    if req_id:
+                        storage["pending_requests"][my_cabin] = req_id
+                        st.info(f"Request for {req_id} sent to Admin.")
+            else:
+                st.error("Maximum (2) unblock chances used for this customer.")
+
+            st.write("---")
+
+            search_id = st.session_state.get("search_id_input", "").upper()
+            with st.expander("📁 Inventory Selection Grid", expanded=(search_id == "")):
                 grid_cols = st.columns(6)
                 for idx, row in inventory.iterrows():
                     uid = str(row['ID']).upper()
-                    unlocked = (uid == assigned_id) or (uid in storage["approved_units"][my_cabin])
+                    # A unit is clickable ONLY IF it is the assigned one OR approved by admin
+                    is_unlocked = (uid == assigned_id) or (uid in storage["approved_units"].get(my_cabin, []))
                     is_sold = uid in storage["sold_units"]
-                    label = f"🟡 {uid}" if unlocked else (f"⛔ {uid}" if is_sold else f"🔒 {uid}")
-                    if grid_cols[idx % 6].button(label, key=f"b_{uid}", disabled=not unlocked):
-                        st.session_state.search_id_input = uid; st.rerun()
+                    
+                    label = f"🟡 {uid}" if is_unlocked else (f"⛔ SOLD" if is_sold else f"🔒 {uid}")
+                    if grid_cols[idx % 6].button(label, key=f"btn_{uid}", disabled=not is_unlocked):
+                        st.session_state.search_id_input = uid
+                        st.rerun()
 
             if search_id:
-                match = inventory[inventory['ID'].astype(str).str.upper() == search_id]
-                if not match.empty:
-                    row = match.iloc[0]
-                    ist_now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=5, minutes=30)))
-                    
-                    c1, c2, c3 = st.columns(3)
-                    with c1:
-                        use_d = st.checkbox("Discount")
-                        d_val = st.number_input("Amt:", value=0, step=1000) if use_d else 0
-                    with c2:
-                        use_p = st.checkbox("Parking")
-                        p_val = st.number_input("Park Disc:", value=0, min_value=0, max_value=100000, step=1000) if use_p else 0
-                    with c3: is_f = st.checkbox("Female")
-                    
-                    res = calculate_negotiation(clean_numeric(row.get('Agreement Value', 0)), d_val, p_val, use_p, is_f)
-                    park_loc_label = "Parking Under Building" if use_p else "1 Car Parking"
+                # [KEEP EXISTING COST SHEET & CALCULATE_NEGOTIATION LOGIC HERE]
+                # ... (rest of the cost sheet display as provided previously)
+                st.button("❌ Close / Release", on_click=lambda: st.session_state.update({"search_id_input": ""}))
 
                     # --- RESTORED ORIGINAL MONOSPACE COST SHEET ---
                     st.markdown(f"""
@@ -245,15 +317,38 @@ else:
 
     # --- ADMIN DASHBOARD ---
     elif st.session_state.role == "Tarangan":
-        st.title("🛠️ Admin Master")
-        if st.button("🔄 Global Refresh"): st.rerun()
-        t1, t2, t3 = st.tabs(["Requests", "Sales History", "Release Sold"])
+        st.title("🛠️ Admin Master Control")
+        t1, t2, t3 = st.tabs(["Pending Requests", "Manage Unblocks", "System Overview"])
+
         with t1:
-            for c, u in list(storage["pending_requests"].items()):
-                st.write(f"Cabin {c} -> Unit {u}")
-                if st.button(f"Approve {u}", key=f"ap_{c}"):
-                    storage["approved_units"][c].append(u); storage["unblock_counts"][c]+=1; del storage["pending_requests"][c]; st.rerun()
-        with t2: st.table(storage["download_history"])
-        with t3:
-            u_rel = st.selectbox("Release Unit:", sorted(list(storage["sold_units"])))
-            if st.button("Unlock Unit"): storage["sold_units"].remove(u_rel); st.rerun()
+            st.subheader("Unblock Requests")
+            if storage["pending_requests"]:
+                for cab, unit in list(storage["pending_requests"].items()):
+                    col_a, col_b = st.columns([3, 1])
+                    col_a.write(f"**Cabin {cab}** requests unit **{unit}**")
+                    if col_b.button(f"Approve {unit}", key=f"app_{cab}"):
+                        if cab not in storage["approved_units"]: storage["approved_units"][cab] = []
+                        storage["approved_units"][cab].append(unit)
+                        storage["unblock_counts"][cab] = storage["unblock_counts"].get(cab, 0) + 1
+                        del storage["pending_requests"][cab]
+                        st.success(f"Approved {unit} for Cabin {cab}")
+                        st.rerun()
+            else:
+                st.info("No pending unblock requests.")
+
+        with t2:
+            st.subheader("Revoke Unblocked Units")
+            active_unblocks = False
+            for cab, units in storage["approved_units"].items():
+                for u in units:
+                    if u not in storage["sold_units"]: # Only revoke if not yet sold
+                        active_unblocks = True
+                        c1, c2 = st.columns([2, 1])
+                        c1.write(f"Cabin {cab} has access to **{u}**")
+                        if c2.button(f"Revoke {u}", key=f"rev_{cab}_{u}"):
+                            storage["approved_units"][cab].remove(u)
+                            # Optional: Decide if revoking restores the "chance" count
+                            # storage["unblock_counts"][cab] -= 1 
+                            st.rerun()
+            if not active_unblocks:
+                st.info("No active unblocked units to revoke.")
