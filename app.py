@@ -202,7 +202,7 @@ if not st.session_state.authenticated:
 else:
     if st.sidebar.button("Logout"): st.session_state.authenticated = False; st.rerun()
 
-    # --- GRE DASHBOARD ---
+    # --- GRE ---
     if st.session_state.role == "GRE":
         st.title("📝 Stage 1: GRE Entry")
         if st.button("🔄 Refresh"): st.rerun()
@@ -246,7 +246,7 @@ else:
                     storage["waiting_customers"].append(occupied[b_key]); reset_cabin_session(b_key); st.rerun()
                 if c2.button("Remove Customer"): reset_cabin_session(b_key); st.rerun()
 
-    # --- SALES DASHBOARD ---
+    # --- SALES ---
     elif st.session_state.role == "Sales":
         st.title("🏙️ Stage 3: Sales Portal")
         if st.button("🔄 Refresh"): st.rerun()
@@ -273,14 +273,11 @@ else:
                 grid_cols = st.columns(6)
                 for idx, row in inventory.iterrows():
                     uid = str(row['ID']).upper()
-                    # A unit is unlocked if it's the assigned one, approved by admin, OR if admin unblocked a sold unit
                     unlocked = (uid == assigned_id) or (uid in storage["approved_units"][my_cabin])
-                    # If it's sold, show red icon unless explicitly unblocked
                     is_sold = uid in storage["sold_units"]
-                    
-                    label = f"🔴 {uid}" if unlocked else (f"⛔ {uid}" if is_sold else f"🔒 {uid}")
+                    label = f"🟡 {uid}" if unlocked else (f"⛔ {uid}" if is_sold else f"🔒 {uid}")
                     with grid_cols[idx % 6]:
-                        if st.button(label, key=f"b_{uid}", disabled=(not unlocked), use_container_width=True):
+                        if st.button(label, key=f"b_{uid}", disabled=unlocked==False, use_container_width=True):
                             st.session_state.search_id_input = uid; st.rerun()
 
             if search_id:
@@ -300,7 +297,6 @@ else:
                     
                     res = calculate_negotiation(clean_numeric(row.get('Agreement Value', 0)), d_val, p_val, use_p, is_f)
                     
-                    # RESTORED OLD ONSCREEN STYLE
                     st.markdown(f"""
                         <div style="background:white; padding:30px; border:2px solid black; color:black; font-family:monospace;">
                             <div style="text-align:right;">Date: {ist_now.strftime("%d/%m/%Y")}</div>
@@ -321,54 +317,38 @@ else:
                         download_dialog(search_id, row.get('Floor','N/A'), row.get('CARPET','N/A'), res, cust_name, ist_now.strftime("%d/%m/%Y %H:%M"), my_cabin)
                     st.button("❌ Close", on_click=lambda: st.session_state.update({"search_id_input": ""}))
 
-    # --- ADMIN DASHBOARD ---
+    # --- ADMIN ---
     elif st.session_state.role == "Tarangan":
         st.title("🛠️ Admin Master Dashboard")
         if st.button("🔄 Global Refresh"): st.rerun()
-        
-        t1, t2, t3, t4, t5 = st.tabs(["Unblock Requests", "Full Sales Report", "Revoke Unblocks", "Unblock Booked Units", "System Reset"])
+        t1, t2, t3, t4, t5 = st.tabs(["Requests", "Sales Report", "Revoke Unblocks", "Release Sold Units", "Reset"])
         
         with t1:
-            st.subheader("Incoming Unit Requests")
-            if not storage["pending_requests"]: st.info("No pending requests.")
             for c, u in list(storage["pending_requests"].items()):
-                st.write(f"Cabin **{c}** requests unblock for **{u}**")
-                if st.button(f"Approve {u} for Cabin {c}", key=f"app_{c}_{u}"):
+                if st.button(f"Approve {u} for Cabin {c}"):
                     storage["approved_units"][c].append(u); storage["unblock_counts"][c] += 1
                     del storage["pending_requests"][c]; st.rerun()
-
         with t2:
-            st.subheader("Master Sales Record")
-            if storage["download_history"]:
-                st.dataframe(pd.DataFrame(storage["download_history"]), use_container_width=True)
-            else: st.info("No sales recorded.")
-
+            if storage["download_history"]: st.dataframe(pd.DataFrame(storage["download_history"]), use_container_width=True)
         with t3:
-            st.subheader("Revoke Approved Units")
             for c, units in storage["approved_units"].items():
                 if units:
                     st.write(f"**Cabin {c}:**")
                     for u in units:
                         if st.button(f"Revoke {u}", key=f"rev_{c}_{u}"):
-                            storage["approved_units"][c].remove(u); storage["unblock_counts"][c] = max(0, storage["unblock_counts"][c] - 1); st.rerun()
-
+                            storage["approved_units"][c].remove(u); storage["unblock_counts"][c] = max(0, storage["unblock_counts"][c]-1); st.rerun()
         with t4:
-            st.subheader("Release Booked Units")
-            st.write("List of units currently marked as **SOLD**:")
+            st.subheader("Release Finalized Bookings")
             if storage["sold_units"]:
-                selected_release = st.selectbox("Select Unit to Make Available:", list(storage["sold_units"]))
-                if st.button("Unblock Booked Unit"):
-                    storage["sold_units"].remove(selected_release)
-                    st.success(f"Unit {selected_release} is now available again.")
+                to_release = st.selectbox("Select Sold Unit to Revert:", sorted(list(storage["sold_units"])))
+                if st.button("Release Unit & Wipe Report Record"):
+                    # 1. Remove from Sold List
+                    storage["sold_units"].remove(to_release)
+                    # 2. Filter out of Download History (Report)
+                    storage["download_history"] = [d for d in storage["download_history"] if d.get("Unit No") != to_release]
+                    st.success(f"Unit {to_release} is now available and report record removed.")
                     st.rerun()
-            else: st.info("No units are currently booked.")
-
+            else: st.info("No booked units found.")
         with t5:
-            st.subheader("System Reset")
-            if st.text_input("Security Override Password", type="password") == "Atharva Joshi":
-                if st.button("⚠️ WIPE ALL DATA"):
-                    storage["locks"].clear(); storage["sold_units"].clear(); storage["download_history"].clear()
-                    for b in storage["booths"]: storage["booths"][b] = None
-                    for b in storage["approved_units"]: storage["approved_units"][b] = []
-                    for b in storage["unblock_counts"]: storage["unblock_counts"][b] = 0
-                    st.success("System wiped."); st.rerun()
+            if st.text_input("Reset Pass", type="password") == "Atharva Joshi":
+                if st.button("⚠️ WIPE"): storage["locks"].clear(); storage["sold_units"].clear(); storage["download_history"].clear(); st.rerun()
