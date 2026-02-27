@@ -402,29 +402,36 @@ else:
             if storage["download_history"]:
                 df_report = pd.DataFrame(storage["download_history"])
                 
+                # --- SAFETY DATA MAPPING ---
+                # If old data exists, rename 'Total' to 'Total Package' automatically
+                if "Total" in df_report.columns and "Total Package" not in df_report.columns:
+                    df_report = df_report.rename(columns={"Total": "Total Package"})
+                
                 # --- Metrics Summary ---
                 m1, m2, m3 = st.columns(3)
                 m1.metric("Units Sold", len(df_report))
                 
-                # Calculate totals using the correct keys defined in Step 1
-                total_rev = df_report["Total Package"].sum()
-                total_disc = df_report["Discount Given"].sum()
+                # Use .get() or check columns to avoid KeyError
+                t_rev = df_report["Total Package"].sum() if "Total Package" in df_report.columns else 0
+                t_disc = df_report["Discount Given"].sum() if "Discount Given" in df_report.columns else 0
                 
-                m2.metric("Total Revenue", f"₹ {format_indian_currency(total_rev)}")
-                m3.metric("Total Discounts", f"₹ {format_indian_currency(total_disc)}")
+                m2.metric("Total Revenue", f"₹ {format_indian_currency(t_rev)}")
+                m3.metric("Total Discounts", f"₹ {format_indian_currency(t_disc)}")
                 
                 st.divider()
                 
                 # --- Detailed Table ---
                 st.write("### All Transactions")
-                # Showing the columns you requested from the PDF + Sales Person
-                st.dataframe(df_report[[
-                    "Date", "Sales Person", "Cabin", "Customer Name", "Unit No", 
-                    "Agreement Value", "Stamp Duty", "GST", "Total Package", "Discount Given"
-                ]], use_container_width=True)
+                
+                # List of columns we WANT to show (only shows them if they exist)
+                desired_cols = ["Date", "Sales Person", "Cabin", "Customer Name", "Unit No", 
+                                "Agreement Value", "Stamp Duty", "GST", "Total Package", "Discount Given"]
+                available_cols = [c for c in desired_cols if c in df_report.columns]
+                
+                st.dataframe(df_report[available_cols], use_container_width=True)
                 
                 # CSV Export
                 csv = df_report.to_csv(index=False).encode('utf-8')
                 st.download_button("📥 Download Excel (CSV)", csv, "Full_Sales_Report.csv", "text/csv")
             else:
-                st.info("No sales recorded yet. Data will appear here after 'Finalize & Send' is clicked.")
+                st.info("No sales recorded yet.")
