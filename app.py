@@ -22,7 +22,7 @@ except ImportError:
 SENDER_EMAIL = "atharvaujoshi@gmail.com"
 SENDER_NAME = "Tarangan Cost Sheet" 
 APP_PASSWORD = "nybl zsnx zvdw edqr"
-RECEIVER_EMAIL = "spydarr1106@gmail.com"
+RECEIVER_EMAIL = "sales@taranganbysmmahalaxmi.com"
 
 # --- HELPER FUNCTIONS ---
 def clean_numeric(value):
@@ -44,6 +44,7 @@ def calculate_negotiation(initial_agreement, pkg_discount=0, park_discount=0, us
     gst_amt = final_agreement * gst_pct
     reg = 30000
     total = int(final_agreement + sd_amt + gst_amt + reg)
+    # CUSTOM PARKING LOGIC
     parking_text = "Parking Under Building" if use_parking else "1 Car Parking"
     return {
         "Final Agreement": final_agreement, "Stamp Duty": sd_amt, "SD_Pct": sd_pct*100, 
@@ -105,6 +106,7 @@ CSV_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:cs
 def load_data():
     df = pd.read_csv(CSV_URL); df.columns = [str(c).strip() for c in df.columns]; return df
 
+# --- FIXED PDF FUNCTION ---
 def create_pdf(unit_id, floor, carpet, costs, cust_name, date_str, use_parking):
     pdf = FPDF()
     copies = ["Customer's Copy", "Sales Copy"]
@@ -122,6 +124,8 @@ def create_pdf(unit_id, floor, carpet, costs, cust_name, date_str, use_parking):
         pdf.set_font("Arial", 'B', 12); display_name = cust_name if cust_name.strip() else "____________________"
         pdf.cell(190, 10, f"Customer Name: {display_name}", ln=True)
         pdf.cell(190, 10, f"Unit No: {unit_id} | Floor: {floor} | Carpet: {carpet} sqft", ln=True)
+        # PARKING TEXT IN PDF
+        pdf.cell(190, 10, f"Parking: {costs['Parking Text']}", ln=True)
         pdf.line(10, pdf.get_y(), 200, pdf.get_y()); pdf.ln(5)
         
         pdf.set_font("Arial", 'B', 11); pdf.cell(95, 10, "Description", border=1, align='C'); pdf.cell(95, 10, "Amount (Rs.)", border=1, ln=True, align='C')
@@ -178,22 +182,23 @@ def create_pdf(unit_id, floor, carpet, costs, cust_name, date_str, use_parking):
 st.set_page_config(page_title="Tarangan Dash", layout="wide")
 
 @st.dialog("Finalize Booking")
-def download_dialog(unit_id, floor, carpet, costs, cust_name, ist_now, cabin_key):
+def download_dialog(unit_id, floor, carpet, costs, cust_name, date_str, use_parking, cabin_key):
     st.write(f"Generate PDF for **Unit {unit_id}**")
     sales_name = st.text_input("Sales Person Name:")
     if st.button("Email & Generate"):
         if not sales_name.strip(): st.error("Please enter sales name.")
         else:
             try:
-                pdf_bytes = create_pdf(unit_id, floor, carpet, costs, cust_name)
-                details = {"Timestamp": ist_now, "Sales Person": sales_name, "Unit No": unit_id, "Customer Name": cust_name, "Total Package": format_indian_currency(costs['Total'])}
+                # PASSED ALL REQUIRED ARGUMENTS TO CREATE_PDF
+                pdf_bytes = create_pdf(unit_id, floor, carpet, costs, cust_name, date_str, use_parking)
+                details = {"Timestamp": date_str, "Sales Person": sales_name, "Unit No": unit_id, "Customer Name": cust_name, "Total Package": format_indian_currency(costs['Total'])}
                 if send_email(RECEIVER_EMAIL, pdf_bytes, f"Tarangan_{unit_id}.pdf", details):
                     storage["download_history"].append(details); storage["sold_units"].add(unit_id)
                     reset_cabin_session(cabin_key); st.session_state.search_id_input = ""
                     st.success("Email Sent Successfully!"); st.download_button("Download PDF", pdf_bytes, f"Tarangan_{unit_id}.pdf")
             except Exception as e: st.error(f"Error: {e}")
 
-# --- AUTH & DASHBOARD LOGIC ---
+# --- AUTH & LOGIN (SAME AS BEFORE) ---
 if 'authenticated' not in st.session_state: st.session_state.authenticated = False
 if not st.session_state.authenticated:
     st.title("🔐 Tarangan Login")
@@ -259,7 +264,7 @@ else:
                 match = inventory[inventory['ID'].astype(str).str.upper() == search_id]
                 if not match.empty:
                     row = match.iloc[0]
-                    ist_now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=5, minutes=30)))
+                    ist_now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=5, minutes=30))).strftime("%d/%m/%Y")
                     c1, c2, c3 = st.columns(3)
                     with c1: d_val = st.number_input("Discount:", value=0)
                     with c2: use_p = st.checkbox("Parking"); p_val = st.number_input("Park Disc:", value=0) if use_p else 0
@@ -267,19 +272,23 @@ else:
                     
                     res = calculate_negotiation(clean_numeric(row.get('Agreement Value', 0)), d_val, p_val, use_p, is_f)
                     
+                    # ONSCREEN COST SHEET
                     st.markdown(f"""
                         <div style="background:white; padding:30px; border:2px solid black; color:black; font-family:monospace;">
                             <h2 style="text-align:center;">TARANGAN</h2>
                             <p><b>Customer:</b> {cust_name}</p>
                             <p><b>Unit:</b> {search_id} | <b>Floor:</b> {row.get('Floor','N/A')}</p>
                             <p><b>Parking:</b> {res['Parking Text']}</p>
-                            <div style="display:flex; justify-content:space-between;"><span>Agreement</span><span>Rs. {format_indian_currency(res['Final Agreement'])}</span></div>
-                            <div style="display:flex; justify-content:space-between; font-weight:bold; font-size:1.2em; border-top:2px solid black;"><span>TOTAL</span><span>Rs. {format_indian_currency(res['Total'])}</span></div>
+                            <div style="display:flex; justify-content:space-between; border-bottom:1px dotted #888;"><span>Agreement</span><span>Rs. {format_indian_currency(res['Final Agreement'])}</span></div>
+                            <div style="display:flex; justify-content:space-between; border-bottom:1px dotted #888;"><span>Stamp Duty ({int(res['SD_Pct'])}%)</span><span>Rs. {format_indian_currency(res['Stamp Duty'])}</span></div>
+                            <div style="display:flex; justify-content:space-between; border-bottom:1px dotted #888;"><span>GST ({int(res['GST_Pct'])}%)</span><span>Rs. {format_indian_currency(res['GST'])}</span></div>
+                            <div style="display:flex; justify-content:space-between; border-bottom:1px dotted #888;"><span>Registration</span><span>Rs. {format_indian_currency(res['Registration'])}</span></div>
+                            <div style="display:flex; justify-content:space-between; font-weight:bold; font-size:1.2em; border-top:2px solid black; margin-top:10px;"><span>TOTAL</span><span>Rs. {format_indian_currency(res['Total'])}</span></div>
                         </div>
                     """, unsafe_allow_html=True)
                     
                     if st.button("Finalize & Email"):
-                        download_dialog(search_id, row.get('Floor','N/A'), row.get('CARPET','N/A'), res, cust_name, ist_now.strftime("%d/%m/%Y"), my_cabin)
+                        download_dialog(search_id, row.get('Floor','N/A'), row.get('CARPET','N/A'), res, cust_name, ist_now, use_p, my_cabin)
 
     elif st.session_state.role == "Tarangan":
         st.title("🛠️ Admin Dashboard")
