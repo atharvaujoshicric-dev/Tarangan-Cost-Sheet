@@ -143,7 +143,7 @@ def create_pdf(unit_id, floor, carpet, costs, cust_name, date_str, use_parking):
         tc_lines = [
             "1. Advocate charges will be Rs. 15,000/-.",
             "2. Agreement to be executed & registered within 15 days from the date of booking.",
-            "3. The total cost mentioned here is all inclusive of GST, Registration, Stamp Duty and Legal charges",
+            "3. The total cost mentioned here is all inclusive of GST, Registration, Stamp Duty.",
             "4. GST, Stamp Duty, Registration and all applicable government charges are as per the current rates, and in future may change as per government notification which would be borne by the customer.",
             "5. Above areas are shown in square feet only to make it easy for the purchaser to understand. The sale of the said unit is on the basis of RERA carpet area only.",
             "6. All legal documents will be executed in square meter only.",
