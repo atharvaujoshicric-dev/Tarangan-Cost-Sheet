@@ -178,6 +178,7 @@ def get_global_storage():
         # slot non-visit tracking: dict slot -> list of customer names
         "slot_snapshots":       {},      # {"Slot 1": [...], "Slot 2": [...], "Slot 3": [...]}
         "released_units":       {},      # unit_id -> {sales_name, reason, cabin, customer, time}
+        "event_counter":        0,       # incremented on any finalize/close so all cabins auto-refresh
     }
 
 storage = get_global_storage()
@@ -196,6 +197,9 @@ def reset_cabin(cabin):
 # ---------------------------------------------------------------------------
 
 IST = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+
+# Units permanently blocked as Refuge — no sales, no requests, ever
+REFUGE_UNITS = {"705", "1205", "A-705", "A-1205"}
 
 SLOTS = [
     {"name": "Slot 1", "token_range": (21, 45),  "start": (10, 0),  "end": (11, 30)},
@@ -513,6 +517,22 @@ else:
         if "search_id_input" not in st.session_state:
             st.session_state.search_id_input = ""
 
+        # ── Auto-refresh when another cabin finalises or closes a unit ──────
+        # We track the last-seen event_counter; if global one is ahead, rerun.
+        current_event = storage.get("event_counter", 0)
+        if st.session_state.get("last_event_counter", 0) < current_event:
+            st.session_state["last_event_counter"] = current_event
+            st.cache_data.clear()   # force inventory reload
+            st.rerun()
+        # Track global event counter — auto-rerun when any cabin finalises or closes
+        if "last_event_seen" not in st.session_state:
+            st.session_state.last_event_seen = 0
+        current_event = storage.get("event_counter", 0)
+        if current_event != st.session_state.last_event_seen:
+            st.session_state.last_event_seen = current_event
+            st.session_state.search_id_input = ""
+            st.rerun()
+
         st.title("🏙️ Stage 3: Sales Portal")
         if st.sidebar.button("🔄 Global Refresh"):
             st.rerun()
@@ -612,7 +632,13 @@ else:
                         if not isinstance(storage["pending_requests"].get(my_cabin), list):
                             storage["pending_requests"][my_cabin] = []
                         pending_units = [p["unit"] for p in storage["pending_requests"][my_cabin]]
-                        if req_unit in pending_units:
+
+                        # Hard-block refuge units — no request allowed, ever
+                        if req_unit in REFUGE_UNITS or req_unit in {"705", "1205"}:
+                            st.error(f"🚫 Unit {req_unit} is a REFUGE unit and can never be unlocked.")
+                        elif req_unit in storage["sold_units"]:
+                            st.error(f"🚫 Unit {req_unit} is already SOLD. Request not sent.")
+                        elif req_unit in pending_units:
                             st.warning(f"Request for {req_unit} already pending.")
                         elif req_unit in storage["approved_units"].get(my_cabin, []):
                             st.info(f"{req_unit} is already approved.")
@@ -659,8 +685,9 @@ else:
                 for idx, row_data in inventory.iterrows():
                     uid = str(row_data['ID']).upper().strip()
 
-                    if uid in ["705", "1205"]:
-                        btn_label   = "🏥 REFUGE"
+                    uid_norm = uid.replace("A-", "").replace("A", "")
+                    if uid in REFUGE_UNITS or uid_norm in {"705", "1205"}:
+                        btn_label   = f"🏥 REFUGE"
                         is_disabled = True
                     else:
                         approved_list  = storage["approved_units"].get(my_cabin, [])
@@ -776,14 +803,13 @@ else:
                         with st.popover("✅ Finalize & Book"):
                             st.subheader("Final Confirmation")
                             s_name = st.text_input(
-                                "Enter Sales Person Name:", key="final_s_name"
+                                "Sales Person Name (required):", key="final_s_name"
                             )
                             if st.button("Confirm & Generate Cost Sheet", use_container_width=True):
-                                if not s_name:
-                                    st.error("Sales person name is required.")
+                                if not s_name.strip():
+                                    st.error("❌ Sales person name is required before booking.")
                                 elif search_id in storage["sold_units"]:
-                                    # Double-booking guard
-                                    st.error(f"Unit {search_id} has already been booked!")
+                                    st.error(f"🚫 Unit {search_id} has already been booked!")
                                 else:
                                     try:
                                         pdf_bytes = create_pdf(
@@ -799,6 +825,23 @@ else:
                                         pdf_bytes = None
 
                                     if pdf_bytes:
+                                        # ── Swap logic: if this unit was previously released/locked
+                                        # by another cabin and is now being sold, clear its released flag
+                                        # and log the swap so other cabins see the unit as SOLD ──
+                                        released_info = storage.get("released_units", {}).pop(search_id, None)
+                                        if released_info:
+                                            storage["activity_log"].append({
+                                                "Time":   ist_now.strftime("%H:%M:%S"),
+                                                "Action": "Unit Swap (Released→Sold)",
+                                                "By":     s_name.strip(),
+                                                "Detail": (
+                                                    f"Unit {search_id} was released by Cabin "
+                                                    f"{released_info.get('cabin','')} "
+                                                    f"({released_info.get('customer','')}), "
+                                                    f"now sold to {cust_name} via Cabin {my_cabin}"
+                                                ),
+                                            })
+
                                         # Mark unit sold & log it
                                         storage["sold_units"].add(search_id)
                                         storage["download_history"].append({
@@ -816,13 +859,15 @@ else:
                                             "Total Package":    res['Total'],
                                             "Discount Given":   effective_d + p_val,
                                             "Parking Included": "Yes" if use_p else "No",
-                                            "Sales Person":     s_name,
+                                            "Sales Person":     s_name.strip(),
                                             "Timestamp":        ist_now.strftime("%H:%M:%S"),
                                         })
 
-                                        # Free the cabin (single helper)
+                                        # Free cabin & broadcast event so all other cabins
+                                        # auto-refresh their grid on next interaction
                                         reset_cabin(my_cabin)
                                         st.session_state.search_id_input = ""
+                                        storage["event_counter"] = storage.get("event_counter", 0) + 1
 
                                         st.success(
                                             f"✅ Unit {search_id} Booked! "
@@ -853,14 +898,14 @@ else:
                                 "This will mark the unit as **Released** — visible to all cabins "
                                 "but locked for selection until admin approves a request."
                             )
-                            cr_name = st.text_input("Sales Person Name:", key="cr_sales_name")
-                            cr_reason = st.text_area("Reason for Release:", key="cr_reason",
+                            cr_name = st.text_input("Sales Person Name (required):", key="cr_sales_name")
+                            cr_reason = st.text_area("Reason for Release (required):", key="cr_reason",
                                                      placeholder="e.g. Customer not interested, budget mismatch...")
                             if st.button("Confirm Release", key="confirm_release", use_container_width=True):
                                 if not cr_name.strip():
-                                    st.error("Please enter the sales person name.")
+                                    st.error("❌ Sales person name is required.")
                                 elif not cr_reason.strip():
-                                    st.error("Please enter a reason for release.")
+                                    st.error("❌ Reason for release is required.")
                                 else:
                                     # Mark this specific unit as released
                                     storage.setdefault("released_units", {})[search_id] = {
@@ -878,6 +923,8 @@ else:
                                         "Detail": f"Unit {search_id} released from Cabin {my_cabin}. Reason: {cr_reason.strip()}",
                                     })
                                     st.session_state.search_id_input = ""
+                                    # Broadcast so all other cabin views auto-refresh
+                                    storage["event_counter"] = storage.get("event_counter", 0) + 1
                                     st.success(f"Unit {search_id} released. Now visible to all cabins (locked until admin approves).")
                                     st.rerun()
 
@@ -1023,64 +1070,68 @@ else:
 
         # ── Tab 4: Live Inventory ──────────────────────────────────────────
         with t4:
-            st.subheader("🏢 Live Inventory Status")
+            st.subheader("🏢 Live Inventory — Grid View")
             inv_data = load_data()
 
             if inv_data is not None and not inv_data.empty:
                 sold_set  = storage.get("sold_units", set())
                 booths    = storage.get("booths", {})
-                # Build a display dataframe
+                rel_units = storage.get("released_units", {})
+
                 rows_disp = []
                 for _, r in inv_data.iterrows():
-                    uid = str(r.get('ID', '')).upper().strip()
-                    if uid in ["705", "1205"]:
-                        status = "🏥 Refuge"
-                        release_info = ""
+                    uid = str(r.get("ID", "")).upper().strip()
+                    cust_allotted = str(r.get("Customer Allotted", "")).strip()
+                    # Try common mobile column names
+                    mobile = ""
+                    for col_try in ["Mobile", "Phone", "Contact", "Mobile No", "Phone No"]:
+                        val = str(r.get(col_try, "")).strip()
+                        if val and val.lower() not in ("nan", "none", ""):
+                            mobile = val
+                            break
+
+                    uid_norm_a = uid.replace("A-","").replace("A","")
+                    if uid in REFUGE_UNITS or uid_norm_a in {"705","1205"}:
+                        status = "🏥 Refuge"; release_info = ""
                     elif uid in sold_set:
-                        status = "⛔ Sold"
-                        release_info = ""
-                    elif uid in storage.get("released_units", {}):
-                        rel = storage["released_units"][uid]
-                        status = "🔓 Released (request needed)"
+                        status = "⛔ Sold"; release_info = ""
+                    elif uid in rel_units:
+                        rel = rel_units[uid]
+                        status = "🔓 Released"
                         release_info = f"{rel.get('sales_name','')} — {rel.get('reason','')}"
                     elif storage.get("inventory_released"):
-                        status = "👁 Global Release (view only)"
-                        release_info = ""
+                        status = "👁 Global Release"; release_info = ""
                     else:
-                        # Check if assigned to any cabin customer
-                        cust_allotted = str(r.get('Customer Allotted', '')).strip()
                         cabin_assigned = None
                         for cb, cx in booths.items():
-                            if cx and str(cx).upper() == str(cust_allotted).upper():
-                                cabin_assigned = cb
-                                break
-                        if cabin_assigned:
-                            status = f"🟢 Active – Cabin {cabin_assigned}"
-                        else:
-                            status = "🔒 Locked"
+                            if cx and str(cx).upper() == cust_allotted.upper():
+                                cabin_assigned = cb; break
+                        status = f"🟢 Active – Cabin {cabin_assigned}" if cabin_assigned else "🔒 Locked"
                         release_info = ""
+
                     rows_disp.append({
                         "Unit ID":      uid,
                         "Floor":        r.get("Floor", ""),
                         "Carpet":       r.get("CARPET", ""),
                         "Status":       status,
-                        "Customer":     r.get("Customer Allotted", ""),
+                        "Customer":     cust_allotted,
+                        "Mobile":       mobile,
                         "Agr. Value":   r.get("Agreement Value", ""),
                         "Release Info": release_info,
                     })
 
                 df_live = pd.DataFrame(rows_disp)
 
-                # Summary metrics
-                total     = len(df_live)
-                sold_c    = len(df_live[df_live["Status"].str.startswith("⛔")])
-                active    = len(df_live[df_live["Status"].str.startswith("🟢")])
-                locked    = len(df_live[df_live["Status"].str.startswith("🔒")])
-                released  = len(df_live[df_live["Status"].str.startswith("🔓")])
-                glob_rel  = len(df_live[df_live["Status"].str.startswith("👁")])
+                # ── Metrics ────────────────────────────────────────────────
+                total    = len(df_live)
+                sold_c   = len(df_live[df_live["Status"].str.startswith("⛔")])
+                active   = len(df_live[df_live["Status"].str.startswith("🟢")])
+                locked   = len(df_live[df_live["Status"].str.startswith("🔒")])
+                released = len(df_live[df_live["Status"].str.startswith("🔓")])
+                glob_rel = len(df_live[df_live["Status"].str.startswith("👁")])
 
-                mc1, mc2, mc3, mc4, mc5, mc6 = st.columns(6)
-                mc1.metric("Total Units",   total)
+                mc1,mc2,mc3,mc4,mc5,mc6 = st.columns(6)
+                mc1.metric("Total",         total)
                 mc2.metric("⛔ Sold",        sold_c)
                 mc3.metric("🟢 Active",      active)
                 mc4.metric("🔒 Locked",      locked)
@@ -1088,35 +1139,101 @@ else:
                 mc6.metric("👁 Global Rel.", glob_rel)
 
                 st.divider()
-                filt = st.selectbox("Filter by status:", [
+
+                # ── Filter ─────────────────────────────────────────────────
+                fa, fb = st.columns([3, 1])
+                filt = fa.selectbox("Filter by status:", [
                     "All", "⛔ Sold", "🟢 Active", "🔒 Locked", "🔓 Released", "👁 Global Release"
-                ])
+                ], key="inv_filt")
+                if fb.button("🔄 Refresh Inventory", use_container_width=True, key="inv_refresh_btn"):
+                    st.cache_data.clear()
+                    st.rerun()
+
                 if filt != "All":
-                    df_show = df_live[df_live["Status"].str.startswith(filt[:2])]
+                    df_show = df_live[df_live["Status"].str.startswith(filt[:2])].reset_index(drop=True)
                 else:
-                    df_show = df_live
+                    df_show = df_live.reset_index(drop=True)
 
-                st.dataframe(df_show, use_container_width=True)
+                # ── Visual Grid ────────────────────────────────────────────
+                STATUS_COLOR = {
+                    "⛔": "#c0392b", "🟢": "#1e8449", "🔒": "#616a6b",
+                    "🔓": "#d35400", "👁": "#1a5276", "🏥": "#7d3c98",
+                }
+                COLS = 8
+                grid_rows = [df_show.iloc[i:i+COLS] for i in range(0, len(df_show), COLS)]
+                selected_unit_id = st.session_state.get("admin_selected_unit", None)
 
-                # Show released units detail table
-                if storage.get("released_units"):
+                for chunk in grid_rows:
+                    gcols = st.columns(COLS)
+                    for gi, (_, grow) in enumerate(chunk.iterrows()):
+                        uid_g  = grow["Unit ID"]
+                        status_g = grow["Status"]
+                        emoji  = status_g[:2] if status_g else "❓"
+                        color  = STATUS_COLOR.get(emoji, "#555555")
+                        is_sel = (uid_g == selected_unit_id)
+                        border = "3px solid #fff" if is_sel else "1px solid #333"
+                        gcols[gi].markdown(
+                            f"""<div style="background:{color}33;border:{border};border-radius:6px;
+                                padding:6px 2px;text-align:center;font-size:0.75em;margin-bottom:2px;">
+                                {emoji}<br/><b>{uid_g}</b><br/>
+                                <span style='font-size:0.65em;opacity:0.75;'>Fl.{grow['Floor']}</span>
+                            </div>""",
+                            unsafe_allow_html=True
+                        )
+                        if gcols[gi].button("📋", key=f"adm_sel_{uid_g}", use_container_width=True,
+                                            help=f"Select {uid_g}"):
+                            st.session_state["admin_selected_unit"] = uid_g
+                            st.rerun()
+
+                # ── Unit Detail Panel ──────────────────────────────────────
+                if selected_unit_id:
+                    sel_rows = df_live[df_live["Unit ID"] == selected_unit_id]
+                    if not sel_rows.empty:
+                        sel = sel_rows.iloc[0]
+                        st.divider()
+                        dp1, dp2 = st.columns([4, 1])
+                        dp1.markdown(f"### 🔍 Unit **{selected_unit_id}** — {sel['Status']}")
+                        if dp2.button("✖ Close", key="close_detail"):
+                            st.session_state.pop("admin_selected_unit", None)
+                            st.rerun()
+
+                        dd1, dd2, dd3 = st.columns(3)
+                        dd1.metric("Floor",   str(sel["Floor"]))
+                        dd2.metric("Carpet",  f"{sel['Carpet']} sqft" if sel["Carpet"] else "—")
+                        dd3.metric("Agr. Value", str(sel["Agr. Value"]) if sel["Agr. Value"] else "—")
+
+                        st.markdown(f"""
+| Field | Value |
+|---|---|
+| **Customer** | {sel['Customer'] or '—'} |
+| **Mobile** | {sel['Mobile'] or '—'} |
+| **Status** | {sel['Status']} |
+| **Release Info** | {sel['Release Info'] or '—'} |
+                        """)
+
+                        if selected_unit_id in rel_units:
+                            rel_d = rel_units[selected_unit_id]
+                            st.info(
+                                f"🔓 Released by **{rel_d.get('sales_name','')}** at {rel_d.get('time','')}  \n"
+                                f"Reason: *{rel_d.get('reason','')}*  \n"
+                                f"Original Cabin: **{rel_d.get('cabin','')}** | Customer: **{rel_d.get('customer','')}**"
+                            )
+
+                # ── Released Units Log ─────────────────────────────────────
+                if rel_units:
                     st.divider()
                     st.markdown("### 🔓 Released Units Log")
-                    rel_rows = []
-                    for uid, info in storage["released_units"].items():
-                        rel_rows.append({
-                            "Unit":         uid,
-                            "Released By":  info.get("sales_name", ""),
-                            "Reason":       info.get("reason", ""),
-                            "Cabin":        info.get("cabin", ""),
-                            "Customer":     info.get("customer", ""),
-                            "Time":         info.get("time", ""),
-                        })
-                    st.dataframe(pd.DataFrame(rel_rows), use_container_width=True)
+                    rel_log = [{
+                        "Unit": uid, "Released By": i.get("sales_name",""),
+                        "Reason": i.get("reason",""), "Cabin": i.get("cabin",""),
+                        "Customer": i.get("customer",""), "Time": i.get("time",""),
+                    } for uid, i in rel_units.items()]
+                    st.dataframe(pd.DataFrame(rel_log), use_container_width=True)
 
             else:
                 st.info("Inventory not loaded.")
 
+        # ── Tab 5: Slot Tracker ────────────────────────────────────────────
         # ── Tab 5: Slot Tracker ────────────────────────────────────────────
         with t5:
             st.subheader("🕐 Token Slot Tracker")
@@ -1200,6 +1317,7 @@ else:
                     storage["inventory_released"]  = False
                     storage["slot_snapshots"]      = {}
                     storage["released_units"]      = {}
+                    storage["event_counter"]       = 0
                     st.cache_resource.clear()
                     st.success("System fully reset.")
                     st.rerun()
