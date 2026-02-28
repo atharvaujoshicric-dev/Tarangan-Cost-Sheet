@@ -211,47 +211,47 @@ else:
                 st.rerun()
 
     # --- MANAGER DASHBOARD ---
-    elif st.session_state.role == "Manager":
-    st.title("👔 Manager: Cabin Assignment")
-    
-    col_assign, col_status = st.columns([1, 1])
-    
-    with col_assign:
-        st.subheader("Assign Customer")
-        if storage["waiting_customers"]:
-            cust_to_assign = st.selectbox("Select from Waitlist", 
-                                        options=storage["waiting_customers"], 
-                                        format_func=lambda x: x['name'])
-            free_cabins = [k for k, v in storage["booths"].items() if v is None]
+            elif st.session_state.role == "Manager":
+                st.title("👔 Manager: Cabin Assignment")
             
-            if free_cabins:
-                target_cabin = st.selectbox("Assign to Free Cabin", free_cabins)
-                if st.button("Confirm Assignment"):
-                    storage["booths"][target_cabin] = cust_to_assign['name']
-                    storage["waiting_customers"].remove(cust_to_assign)
-                    st.rerun()
-            else:
-                st.warning("All cabins are currently occupied.")
-        else:
-            st.info("No customers in waiting list.")
-
-    with col_status:
-        st.subheader("Cabin Occupancy")
-        for cab in "ABCDEFGH":
-            occupant = storage["booths"][cab]
-            status_color = "🔴" if occupant else "🟢 FREE"
-            label = f"**Cabin {cab}:** {occupant if occupant else ''}"
-            st.markdown(f"{status_color} {label}")
-            if occupant:
-                if st.button(f"Clear Cabin {cab}", key=f"clr_{cab}"):
-                    storage["booths"][cab] = None
-                    storage["approved_units"][cab] = [] # Reset approvals on exit
-                    st.rerun()
+            col_assign, col_status = st.columns([1, 1])
+            
+            with col_assign:
+                st.subheader("Assign Customer")
+                if storage["waiting_customers"]:
+                    cust_to_assign = st.selectbox("Select from Waitlist", 
+                                                options=storage["waiting_customers"], 
+                                                format_func=lambda x: x['name'])
+                    free_cabins = [k for k, v in storage["booths"].items() if v is None]
+                    
+                    if free_cabins:
+                        target_cabin = st.selectbox("Assign to Free Cabin", free_cabins)
+                        if st.button("Confirm Assignment"):
+                            storage["booths"][target_cabin] = cust_to_assign['name']
+                            storage["waiting_customers"].remove(cust_to_assign)
+                            st.rerun()
+                    else:
+                        st.warning("All cabins are currently occupied.")
+                else:
+                    st.info("No customers in waiting list.")
+        
+            with col_status:
+                st.subheader("Cabin Occupancy")
+                for cab in "ABCDEFGH":
+                    occupant = storage["booths"][cab]
+                    status_color = "🔴" if occupant else "🟢 FREE"
+                    label = f"**Cabin {cab}:** {occupant if occupant else ''}"
+                    st.markdown(f"{status_color} {label}")
+                    if occupant:
+                        if st.button(f"Clear Cabin {cab}", key=f"clr_{cab}"):
+                            storage["booths"][cab] = None
+                            storage["approved_units"][cab] = [] # Reset approvals on exit
+                            st.rerun()
 
     # --- SALES DASHBOARD ---
     elif st.session_state.role == "Sales":
-    my_cabin = st.selectbox("Your Assigned Cabin:", list("ABCDEFGH"))
-    current_cust = storage["booths"].get(my_cabin)
+        my_cabin = st.selectbox("Your Assigned Cabin:", list("ABCDEFGH"))
+        current_cust = storage["booths"].get(my_cabin)
     
     if not current_cust:
         st.warning("Waiting for Manager to assign a customer to this cabin...")
