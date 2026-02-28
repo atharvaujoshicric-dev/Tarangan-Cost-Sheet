@@ -46,8 +46,8 @@ def load_inventory():
 def load_customers():
     df = pd.read_csv(CUST_URL)
     df.columns = df.columns.str.strip()
-    if "Customer Name" in df.columns:
-        return df["Customer Name"].dropna().tolist()
+    if "Customer Alloted" in df.columns:
+        return df["Customer Allotted"].dropna().tolist()
     return []
 
 # ================== APP CONFIG ==================
