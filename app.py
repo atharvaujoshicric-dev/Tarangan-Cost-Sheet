@@ -4,16 +4,17 @@ import re
 import urllib.parse
 from fpdf import FPDF
 import datetime
+import io
 import smtplib
+import gspread
+from google.oauth2.service_account import Credentials
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
 from email import encoders
 from email.utils import formataddr
-import gspread
-from google.oauth2.service_account import Credentials
 
-# ================= GOOGLE SHEETS SETUP =================
+# ================= GOOGLE SHEETS BACKEND =================
 
 scope = [
     "https://www.googleapis.com/auth/spreadsheets",
@@ -30,75 +31,69 @@ gc = gspread.authorize(creds)
 SPREADSHEET_ID = "1L-anmwniKOgT2DfNJMdqYkMsRw4slAcH2MUR5OPfcP0"
 sheet = gc.open_by_key(SPREADSHEET_ID)
 
+def ws(name):
+    return sheet.worksheet(name)
+
 # ================= BACKEND HELPERS =================
 
-def get_ws(name):
-    try:
-        return sheet.worksheet(name)
-    except:
-        ws = sheet.add_worksheet(title=name, rows="1000", cols="20")
-        return ws
-
-# ---------- WAITING LIST ----------
+# Waiting List
 def get_waiting():
-    ws = get_ws("Waiting_List")
-    return ws.col_values(1)
+    return ws("Waiting_List").col_values(1)
 
 def add_waiting(name):
-    ws = get_ws("Waiting_List")
-    ws.append_row([name])
+    ws("Waiting_List").append_row([name])
 
 def remove_waiting(name):
-    ws = get_ws("Waiting_List")
-    data = ws.get_all_values()
+    w = ws("Waiting_List")
+    data = w.get_all_values()
     for i, row in enumerate(data):
         if row and row[0] == name:
-            ws.delete_rows(i + 1)
+            w.delete_rows(i+1)
             break
 
-# ---------- BOOTHS ----------
-def init_booths():
-    ws = get_ws("Booths")
-    if not ws.get_all_values():
-        ws.append_row(["Cabin", "Customer"])
-        for cabin in "ABCDEFGHIJ":
-            ws.append_row([cabin, ""])
-
+# Booths
 def get_booths():
-    ws = get_ws("Booths")
-    data = ws.get_all_records()
-    return {row["Cabin"]: row["Customer"] for row in data}
+    data = ws("Booths").get_all_records()
+    return {r["Cabin"]: r["Customer"] for r in data}
 
-def assign_booth(cabin, customer):
-    ws = get_ws("Booths")
-    cell = ws.find(cabin)
-    ws.update_cell(cell.row, 2, customer)
+def assign_booth(cabin, cust):
+    w = ws("Booths")
+    cell = w.find(cabin)
+    w.update_cell(cell.row, 2, cust)
 
 def clear_booth(cabin):
-    ws = get_ws("Booths")
-    cell = ws.find(cabin)
-    ws.update_cell(cell.row, 2, "")
+    w = ws("Booths")
+    cell = w.find(cabin)
+    w.update_cell(cell.row, 2, "")
 
-# ---------- SOLD ----------
+# Sold
 def get_sold():
-    ws = get_ws("Sold_Units")
-    return ws.col_values(1)
+    return ws("Sold_Units").col_values(1)
 
 def mark_sold(unit):
-    ws = get_ws("Sold_Units")
-    ws.append_row([unit])
+    ws("Sold_Units").append_row([unit])
 
-# ---------- HISTORY ----------
-def add_history(date, unit, customer, total):
-    ws = get_ws("Download_History")
-    ws.append_row([date, unit, customer, total])
+# History
+def add_history(data_dict):
+    ws("Download_History").append_row(list(data_dict.values()))
 
 def get_history():
-    ws = get_ws("Download_History")
-    data = ws.get_all_records()
-    return pd.DataFrame(data)
+    return pd.DataFrame(ws("Download_History").get_all_records())
 
-# ================= INVENTORY (READ ONLY) =================
+# ================= INVENTORY UPDATE =================
+
+def mark_inventory_sold(unit_id, customer):
+    inv = ws("Inventory List")
+    cell = inv.find(unit_id)
+    headers = inv.row_values(1)
+
+    cust_col = headers.index("Customer Allotted") + 1
+    token_col = headers.index("Token Number") + 1
+
+    inv.update_cell(cell.row, cust_col, customer)
+    inv.update_cell(cell.row, token_col, "SOLD")
+
+# ================= INVENTORY READ (FAST) =================
 
 SHEET_ID = "1L-anmwniKOgT2DfNJMdqYkMsRw4slAcH2MUR5OPfcP0"
 TAB_NAME = "Inventory List"
@@ -118,7 +113,9 @@ if "auth" not in st.session_state:
     st.session_state.auth = False
 
 if not st.session_state.auth:
+
     st.title("🔐 Tarangan Login")
+
     u = st.text_input("Username")
     p = st.text_input("Password", type="password")
 
@@ -129,15 +126,16 @@ if not st.session_state.auth:
             "GRE": "Gre@2026",
             "Manager": "Manager@2026"
         }
+
         if u in creds and p == creds[u]:
             st.session_state.auth = True
             st.session_state.role = u
-            init_booths()
             st.rerun()
         else:
             st.error("Invalid credentials.")
 
 else:
+
     role = st.session_state.role
 
     if st.sidebar.button("Logout"):
@@ -146,34 +144,35 @@ else:
 
     # ================= GRE =================
     if role == "GRE":
-        st.title("📝 GRE Entry")
 
-        waiting = get_waiting()
+        st.title("📝 Stage 1: GRE Entry")
 
-        col1, col2 = st.columns(2)
+        df_master = load_inventory()
+        customers = df_master["Customer Allotted"].dropna().unique().tolist()
 
-        with col1:
-            df = load_inventory()
-            customers = df["Customer Allotted"].dropna().unique().tolist()
+        col_left, col_right = st.columns(2)
+
+        with col_left:
             selected = st.selectbox("Database Customers", ["-- Select --"] + customers)
             if st.button("Add Selected"):
                 if selected != "-- Select --":
                     add_waiting(selected)
                     st.rerun()
 
-        with col2:
-            name = st.text_input("Walk-in Name")
+        with col_right:
+            new_name = st.text_input("Walk-in Name")
             if st.button("Add Walk-in"):
-                if name:
-                    add_waiting(f"(WI) {name}")
+                if new_name:
+                    add_waiting(f"(WI) {new_name}")
                     st.rerun()
 
         st.subheader("Waiting List")
-        for w in waiting:
+        for w in get_waiting():
             st.write(w)
 
     # ================= MANAGER =================
     elif role == "Manager":
+
         st.title("👔 Manager Assignment")
 
         waiting = get_waiting()
@@ -185,7 +184,7 @@ else:
 
             if free:
                 cabin = st.selectbox("Assign Cabin", free)
-                if st.button("Assign"):
+                if st.button("Confirm Assignment"):
                     assign_booth(cabin, cust)
                     remove_waiting(cust)
                     st.rerun()
@@ -196,43 +195,62 @@ else:
 
     # ================= SALES =================
     elif role == "Sales":
-        st.title("🏙️ Sales Portal")
+
+        st.title("🏙️ Stage 3: Sales Portal")
 
         booths = get_booths()
-        sold = get_sold()
+        sold_units = get_sold()
 
-        my_cabin = st.selectbox("Select Cabin", list(booths.keys()))
-        cust = booths.get(my_cabin)
+        my_cabin = st.selectbox("Select Your Cabin:", list(booths.keys()))
+        cust_name = booths.get(my_cabin)
 
-        if not cust:
+        if not cust_name:
             st.warning("Cabin Empty")
         else:
-            st.success(f"Serving: {cust}")
-            inv = load_inventory()
+            st.success(f"Serving: {cust_name}")
+
+            inventory = load_inventory()
 
             cols = st.columns(6)
-            for i,row in inv.iterrows():
+
+            for i,row in inventory.iterrows():
                 uid = str(row["ID"])
-                disabled = uid in sold
-                if cols[i%6].button(uid if not disabled else "SOLD", disabled=disabled):
+                is_sold = uid in sold_units or str(row.get("Token Number")) == "SOLD"
+
+                if cols[i%6].button(
+                    f"{uid}" if not is_sold else f"{uid} SOLD",
+                    disabled=is_sold
+                ):
                     st.session_state.selected_unit = uid
 
             if "selected_unit" in st.session_state:
-                if st.button("Finalize"):
-                    mark_sold(st.session_state.selected_unit)
-                    add_history(str(datetime.date.today()), st.session_state.selected_unit, cust, 0)
+
+                if st.button("✅ Finalize & Book"):
+                    unit = st.session_state.selected_unit
+
+                    mark_sold(unit)
+                    mark_inventory_sold(unit, cust_name)
+
+                    add_history({
+                        "Date": str(datetime.date.today()),
+                        "Unit": unit,
+                        "Customer": cust_name
+                    })
+
                     clear_booth(my_cabin)
                     del st.session_state.selected_unit
-                    st.success("Booked & Cabin Freed")
+
+                    st.success("Booked Successfully & Cabin Freed")
                     st.rerun()
 
-                if st.button("Release"):
+                if st.button("❌ Close / Release"):
                     clear_booth(my_cabin)
                     del st.session_state.selected_unit
                     st.rerun()
 
     # ================= ADMIN =================
     elif role == "Tarangan":
+
         st.title("🛠 Admin Master Control")
 
         tab1, tab2, tab3 = st.tabs(["📊 Sales Report", "🏢 Booth Status", "🚨 Reset"])
@@ -242,7 +260,7 @@ else:
             if not df.empty:
                 st.dataframe(df, use_container_width=True)
             else:
-                st.info("No sales yet.")
+                st.info("No sales recorded yet.")
 
         with tab2:
             booths = get_booths()
@@ -258,14 +276,11 @@ else:
 
         with tab3:
             pw = st.text_input("Reset Password", type="password")
-            if st.button("WIPE ALL DATA"):
+            if st.button("💣 WIPE ALL DATA"):
                 if pw == "Atharva Joshi":
-                    get_ws("Waiting_List").clear()
-                    get_ws("Sold_Units").clear()
-                    get_ws("Download_History").clear()
-                    ws = get_ws("Booths")
-                    ws.clear()
-                    init_booths()
+                    ws("Waiting_List").clear()
+                    ws("Sold_Units").clear()
+                    ws("Download_History").clear()
                     st.success("System Reset")
                     st.rerun()
                 else:
