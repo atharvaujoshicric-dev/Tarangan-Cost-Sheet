@@ -378,7 +378,9 @@ else:
                     
                     # Negotiation Inputs
                     c1, c2, c3 = st.columns(3)
-                    with c1: d_val = st.number_input("Pkg Discount:", value=0, step=1000)
+                    with c1:
+                        use_d = st.checkbox("Discount")
+                        d_val = st.number_input("Discount:", value=0, step=1000)
                     with c2: 
                         use_p = st.checkbox("Include Parking")
                         p_val = st.number_input("Park Disc:", value=0) if use_p else 0
