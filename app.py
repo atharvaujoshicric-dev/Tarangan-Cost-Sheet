@@ -3,8 +3,6 @@ import pandas as pd
 import re
 import urllib.parse
 from fpdf import FPDF
-import datetime
-import io
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -12,132 +10,60 @@ from email.mime.base import MIMEBase
 from email import encoders
 from email.utils import formataddr
 
-# Safety import for num2words
-try:
-    from num2words import num2words
-except ImportError:
-    st.error("Please add 'num2words' to your requirements.txt file on GitHub.")
-
-# ---------------- EMAIL CONFIGURATION ----------------
-SENDER_EMAIL = "atharvaujoshi@gmail.com"
-SENDER_NAME = "Tarangan Cost Sheet"
-APP_PASSWORD = "nybl zsnx zvdw edqr"
-RECEIVER_EMAIL = "spydarr1106@gmail.com"
-
-# ---------------- HELPER FUNCTIONS ----------------
-
-def clean_numeric(value):
-    if pd.isna(value):
-        return 0.0
-    clean_val = re.sub(r'[^\d.]', '', str(value))
-    return float(clean_val) if clean_val else 0.0
-
-
-def format_indian_currency(number):
-    s = str(int(number))
-    if len(s) <= 3:
-        return s
-    last_three = s[-3:]
-    remaining = s[:-3]
-    remaining = re.sub(r'(\d+?)(?=(\d{2})+$)', r'\1,', remaining)
-    return remaining + ',' + last_three
-
-
-def calculate_negotiation(initial_agreement, pkg_discount=0, park_discount=0,
-                          use_parking=False, is_female=False):
-    parking_final_price = (200000 - park_discount) if use_parking else 0
-    final_agreement = initial_agreement - pkg_discount + parking_final_price
-    sd_pct = 0.06 if is_female else 0.07
-    gst_pct = 0.05 if final_agreement > 4500000 else 0.01
-    REGISTRATION = 30000
-    sd_amt = round(final_agreement * sd_pct, -2)
-    gst_amt = final_agreement * gst_pct
-    total_package = final_agreement + sd_amt + gst_amt + REGISTRATION
-
-    return {
-        "Final Agreement": final_agreement,
-        "Stamp Duty": sd_amt,
-        "SD_Pct": sd_pct * 100,
-        "GST": gst_amt,
-        "GST_Pct": gst_pct * 100,
-        "Registration": REGISTRATION,
-        "Total": int(total_package),
-        "Combined_Discount": int(pkg_discount + park_discount)
-    }
-
-
-def send_email(recipient_email, pdf_data, filename, details):
-    try:
-        msg = MIMEMultipart()
-        msg['From'] = formataddr((SENDER_NAME, SENDER_EMAIL))
-        msg['To'] = recipient_email
-        msg['Subject'] = f"Tarangan Booking: {details['Unit No']} - {details['Customer Name']}"
-        body = f"Please find the attached cost sheet for {details['Customer Name']}."
-        msg.attach(MIMEText(body, 'plain'))
-
-        part = MIMEBase('application', 'octet-stream')
-        part.set_payload(pdf_data)
-        encoders.encode_base64(part)
-        part.add_header('Content-Disposition', f"attachment; filename={filename}")
-        msg.attach(part)
-
-        server = smtplib.SMTP('smtp.gmail.com', 587)
-        server.starttls()
-        server.login(SENDER_EMAIL, APP_PASSWORD)
-        server.send_message(msg)
-        server.quit()
-        return True
-    except:
-        return False
-
-
-# ---------------- SHARED STORAGE ----------------
-
-@st.cache_resource
-def get_global_storage():
-    return {
-        "sold_units": set(),
-        "in_process_units": {},
-        "download_history": [],
-        "booths": {letter: None for letter in "ABCDEFGHIJ"},
-        "pending_requests": {},
-        "approved_units": {letter: [] for letter in "ABCDEFGHIJ"},
-        "unblock_counts": {letter: 0 for letter in "ABCDEFGHIJ"},
-        "waiting_customers": [],
-        "visited_customers": set()
-    }
-
-storage = get_global_storage()
-
-
-# ---------------- GOOGLE SHEET DATA ----------------
+# ================== CONFIG ==================
 
 SHEET_ID = "1L-anmwniKOgT2DfNJMdqYkMsRw4slAcH2MUR5OPfcP0"
-TAB_NAME = "Inventory List"
-CSV_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet={urllib.parse.quote(TAB_NAME)}"
+INVENTORY_TAB = "Inventory List"
+CUSTOMER_TAB = "Customer Database"
 
+INV_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet={urllib.parse.quote(INVENTORY_TAB)}"
+CUST_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet={urllib.parse.quote(CUSTOMER_TAB)}"
 
-@st.cache_data(ttl=2)
-def load_data():
-    df = pd.read_csv(CSV_URL)
-    df.columns = [str(c).strip() for c in df.columns]
+# ================== STORAGE ==================
+
+@st.cache_resource
+def get_storage():
+    return {
+        "waiting_customers": [],
+        "booths": {l: None for l in "ABCDEFGH"},
+        "sold_units": set(),
+        "in_process_units": {},
+        "pending_requests": {},
+        "approved_units": {l: [] for l in "ABCDEFGH"},
+    }
+
+storage = get_storage()
+
+# ================== LOAD DATA ==================
+
+@st.cache_data(ttl=5)
+def load_inventory():
+    df = pd.read_csv(INV_URL)
+    df.columns = df.columns.str.strip()
     return df
 
+@st.cache_data(ttl=5)
+def load_customers():
+    df = pd.read_csv(CUST_URL)
+    df.columns = df.columns.str.strip()
+    if "Customer Name" in df.columns:
+        return df["Customer Name"].dropna().tolist()
+    return []
 
-# ---------------- APP CONFIG ----------------
+# ================== APP CONFIG ==================
 
-st.set_page_config(page_title="Tarangan Dash", layout="wide")
+st.set_page_config("Tarangan Dashboard", layout="wide")
 
-if "authenticated" not in st.session_state:
-    st.session_state.authenticated = False
+if "auth" not in st.session_state:
+    st.session_state.auth = False
 
-if "search_id_input" not in st.session_state:
-    st.session_state.search_id_input = ""
+if "selected_unit" not in st.session_state:
+    st.session_state.selected_unit = None
 
+# ================== LOGIN ==================
 
-# ---------------- LOGIN ----------------
+if not st.session_state.auth:
 
-if not st.session_state.authenticated:
     st.title("🔐 Tarangan Login")
 
     u = st.text_input("Username")
@@ -151,20 +77,19 @@ if not st.session_state.authenticated:
             "Manager": "Manager@2026"
         }
 
-        if u in creds and p == creds[u]:
-            st.session_state.authenticated = True
+        if u in creds and creds[u] == p:
+            st.session_state.auth = True
             st.session_state.role = u
-            st.session_state.user_id = u
             st.rerun()
         else:
             st.error("Invalid credentials.")
 
-# ---------------- DASHBOARDS ----------------
+# ================== MAIN APP ==================
 
 else:
 
     if st.sidebar.button("Logout"):
-        st.session_state.authenticated = False
+        st.session_state.auth = False
         st.rerun()
 
     role = st.session_state.role
@@ -172,50 +97,78 @@ else:
     # ==========================================================
     # GRE DASHBOARD
     # ==========================================================
+
     if role == "GRE":
-        st.title("📝 GRE: Guest Relations")
 
-        with st.expander("➕ Add New Entry", expanded=True):
-            new_name = st.text_input("Customer Full Name")
-            if st.button("Add to Waiting List") and new_name:
-                new_id = len(storage["waiting_customers"]) + 1
-                storage["waiting_customers"].append({
-                    "id": new_id,
-                    "name": new_name
-                })
-                st.rerun()
+        st.title("📝 GRE Dashboard")
 
-        st.subheader("⏳ Current Waiting List")
+        with st.expander("➕ Add Customer Entry", expanded=True):
 
-        for idx, cust in enumerate(storage["waiting_customers"]):
-            col1, col2 = st.columns([4, 1])
-            with col1:
-                new_val = st.text_input(
-                    f"Name (ID: {cust['id']})",
-                    value=cust["name"],
-                    key=f"edit_{idx}"
-                )
-                storage["waiting_customers"][idx]["name"] = new_val
+            entry_type = st.radio(
+                "Select Entry Type",
+                ["Existing Customer", "Walk-In Customer"],
+                horizontal=True
+            )
 
-            with col2:
-                if st.button("Remove", key=f"rem_{idx}"):
-                    storage["waiting_customers"].pop(idx)
+            # ---------------- EXISTING ----------------
+            if entry_type == "Existing Customer":
+
+                customers = load_customers()
+
+                if customers:
+                    selected = st.selectbox("Select Customer", customers)
+
+                    if st.button("Add to Waiting List"):
+                        storage["waiting_customers"].append({
+                            "name": selected,
+                            "type": "Existing"
+                        })
+                        st.success("Customer added.")
+                        st.rerun()
+                else:
+                    st.warning("No customers found in database.")
+
+            # ---------------- WALK-IN ----------------
+            else:
+
+                walkin_name = st.text_input("Enter Walk-In Name")
+
+                if st.button("Add Walk-In") and walkin_name:
+                    storage["waiting_customers"].append({
+                        "name": f"(WI) {walkin_name}",
+                        "type": "Walk-In"
+                    })
+                    st.success("Walk-In added.")
                     st.rerun()
+
+        st.subheader("⏳ Waiting List")
+
+        for i, cust in enumerate(storage["waiting_customers"]):
+            col1, col2 = st.columns([4,1])
+
+            col1.write(f"{cust['name']}")
+
+            if col2.button("Remove", key=f"rem_{i}"):
+                storage["waiting_customers"].pop(i)
+                st.rerun()
 
     # ==========================================================
     # MANAGER DASHBOARD
     # ==========================================================
+
     elif role == "Manager":
-        st.title("👔 Manager: Cabin Assignment")
 
-        col_assign, col_status = st.columns(2)
+        st.title("👔 Manager Dashboard")
 
-        with col_assign:
+        col1, col2 = st.columns(2)
+
+        with col1:
             st.subheader("Assign Customer")
 
             if storage["waiting_customers"]:
-                cust_to_assign = st.selectbox(
-                    "Select from Waitlist",
+
+                selected = st.selectbox(
+                    "Select Customer",
                     storage["waiting_customers"],
                     format_func=lambda x: x["name"]
                 )
@@ -226,164 +179,124 @@ else:
                 ]
 
                 if free_cabins:
-                    target_cabin = st.selectbox(
-                        "Assign to Free Cabin",
-                        free_cabins
-                    )
+                    cabin = st.selectbox("Assign Cabin", free_cabins)
 
                     if st.button("Confirm Assignment"):
-                        storage["booths"][target_cabin] = cust_to_assign["name"]
-                        storage["waiting_customers"].remove(cust_to_assign)
+                        storage["booths"][cabin] = selected["name"]
+                        storage["waiting_customers"].remove(selected)
                         st.rerun()
                 else:
-                    st.warning("All cabins are currently occupied.")
+                    st.warning("All cabins occupied.")
+
             else:
-                st.info("No customers in waiting list.")
+                st.info("No waiting customers.")
 
-        with col_status:
-            st.subheader("Cabin Occupancy")
+        with col2:
+            st.subheader("Cabin Status")
 
-            for cab in "ABCDEFGH":
-                occupant = storage["booths"][cab]
-                status_color = "🔴" if occupant else "🟢 FREE"
-                label = f"**Cabin {cab}:** {occupant if occupant else ''}"
-                st.markdown(f"{status_color} {label}")
+            for cab, occ in storage["booths"].items():
+                status = occ if occ else "FREE"
+                st.write(f"Cabin {cab}: {status}")
 
-                if occupant:
-                    if st.button(f"Clear Cabin {cab}", key=f"clr_{cab}"):
+                if occ:
+                    if st.button(f"Clear {cab}", key=f"clear_{cab}"):
                         storage["booths"][cab] = None
-                        storage["approved_units"][cab] = []
                         st.rerun()
 
     # ==========================================================
     # SALES DASHBOARD
     # ==========================================================
+
     elif role == "Sales":
+
         st.title("💼 Sales Dashboard")
 
-        my_cabin = st.selectbox("Your Assigned Cabin:", list("ABCDEFGH"))
-        current_cust = storage["booths"].get(my_cabin)
+        my_cabin = st.selectbox("Select Your Cabin", list("ABCDEFGH"))
+        current_customer = storage["booths"].get(my_cabin)
 
-        if not current_cust:
-            st.warning("Waiting for Manager to assign a customer...")
+        if not current_customer:
+            st.warning("Waiting for assignment.")
         else:
-            st.header(f"Serving: {current_cust}")
+            st.success(f"Serving: {current_customer}")
 
-            inv = load_data()
-            st.subheader("🏢 Unit Selection")
-
+            inv = load_inventory()
             cols = st.columns(6)
 
             for i, row in inv.iterrows():
                 uid = str(row["ID"]).strip()
 
-                is_sold = (
-                    uid in storage["sold_units"] or
-                    (str(row.get("Token Number")).strip() not in ["", "nan"])
-                )
-
-                is_busy = (
-                    uid in storage["in_process_units"] and
-                    storage["in_process_units"][uid] != my_cabin
-                )
+                is_sold = uid in storage["sold_units"]
+                is_busy = uid in storage["in_process_units"] and \
+                          storage["in_process_units"][uid] != my_cabin
 
                 if is_sold:
-                    cols[i % 6].button(
-                        f"⛔ {uid}\nSOLD",
-                        disabled=True,
-                        key=f"btn_{uid}"
-                    )
+                    cols[i%6].button(f"⛔ {uid}\nSOLD", disabled=True)
                 elif is_busy:
-                    cols[i % 6].button(
-                        f"⏳ {uid}\nBUSY",
-                        disabled=True,
-                        key=f"btn_{uid}"
-                    )
+                    cols[i%6].button(f"⏳ {uid}\nBUSY", disabled=True)
                 else:
-                    if cols[i % 6].button(
-                        f"✅ {uid}\nSelect",
-                        key=f"btn_{uid}"
-                    ):
-                        st.session_state.search_id_input = uid
+                    if cols[i%6].button(f"✅ {uid}", key=f"u_{uid}"):
                         storage["in_process_units"][uid] = my_cabin
+                        st.session_state.selected_unit = uid
                         st.rerun()
 
-            # -------- COST SHEET SECTION --------
-            search_id = st.session_state.search_id_input
+            # Booking section
+            if st.session_state.selected_unit:
 
-            if search_id:
-                match = inv[
-                    inv["ID"].astype(str).str.upper() == search_id
-                ]
+                st.info(f"Selected Unit: {st.session_state.selected_unit}")
 
-                if not match.empty:
-                    row = match.iloc[0]
+                colA, colB = st.columns(2)
 
-                    st.info(
-                        f"Unit {search_id} Selected. "
-                        f"Agreement: {row.get('Agreement Value')}"
-                    )
+                with colA:
+                    if st.button("Finalize & Book"):
+                        storage["sold_units"].add(st.session_state.selected_unit)
+                        storage["in_process_units"].pop(
+                            st.session_state.selected_unit, None
+                        )
+                        storage["booths"][my_cabin] = None
+                        st.session_state.selected_unit = None
+                        st.success("Unit Booked")
+                        st.rerun()
 
-                    col_act1, col_act2 = st.columns(2)
-
-                    with col_act1:
-                        if st.button("✅ Finalize & Book"):
-                            storage["sold_units"].add(search_id)
-                            storage["in_process_units"].pop(search_id, None)
-                            storage["booths"][my_cabin] = None
-                            storage["approved_units"][my_cabin] = []
-                            st.session_state.search_id_input = ""
-                            st.success("Booked!")
-                            st.rerun()
-
-                    with col_act2:
-                        if st.button("❌ Close / Release"):
-                            storage["in_process_units"].pop(search_id, None)
-
-                            if search_id in storage["approved_units"][my_cabin]:
-                                storage["approved_units"][my_cabin].remove(search_id)
-
-                            st.session_state.search_id_input = ""
-                            st.rerun()
+                with colB:
+                    if st.button("Release"):
+                        storage["in_process_units"].pop(
+                            st.session_state.selected_unit, None
+                        )
+                        st.session_state.selected_unit = None
+                        st.rerun()
 
     # ==========================================================
     # ADMIN DASHBOARD
     # ==========================================================
+
     elif role == "Tarangan":
-        st.title("Admin Control Panel")
 
-        inv = load_data()
-        st.subheader("Live Project View")
+        st.title("🛠 Admin Dashboard")
 
-        a_cols = st.columns(8)
+        inv = load_inventory()
+        cols = st.columns(6)
 
-        for i, r in inv.iterrows():
-            uid = str(r["ID"]).strip()
+        for i, row in inv.iterrows():
 
-            is_sold = (
-                uid in storage["sold_units"] or
-                (str(r.get("Token Number")).strip() not in ["", "nan"])
-            )
+            uid = str(row["ID"]).strip()
 
-            if is_sold:
-                color = "#dc3545"
-                txt = "SOLD"
+            if uid in storage["sold_units"]:
+                color = "#ff4b4b"
+                status = "SOLD"
             elif uid in storage["in_process_units"]:
-                color = "#ffc107"
-                txt = "IN NEGOTIATION"
+                color = "#ffa500"
+                status = "IN PROCESS"
             else:
                 color = "#28a745"
-                txt = "OPEN"
+                status = "AVAILABLE"
 
-            a_cols[i % 8].markdown(f"""
+            cols[i%6].markdown(f"""
                 <div style="
                     background:{color};
                     color:white;
-                    padding:5px;
-                    border-radius:3px;
-                    text-align:center;
-                    font-size:10px;
-                    margin-bottom:5px;">
-                    {uid}<br><b>{txt}</b>
+                    padding:10px;
+                    border-radius:5px;
+                    text-align:center;">
+                <b>{uid}</b><br>{status}
                 </div>
             """, unsafe_allow_html=True)
