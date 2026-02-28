@@ -187,93 +187,110 @@ else:
 
     # --- GRE DASHBOARD ---
     if st.session_state.role == "GRE":
-        st.title("📝 Stage 1: GRE Entry")
-        df_master = load_data()
-        all_active = [str(c).upper() for c in storage["waiting_customers"]] + [str(v).upper() for v in storage["booths"].values() if v]
-        
-        col_left, col_right = st.columns(2)
-        with col_left:
-            st.subheader("📋 Database List")
-            target_col = "Customer Allotted"
-            if target_col in df_master.columns:
-                db_list = df_master[target_col].dropna().unique().tolist()
-                filtered = [cust for cust in db_list if str(cust).upper() not in all_active]
-                sel = st.selectbox("Search Customer:", ["-- Select --"] + sorted(filtered))
-                if st.button("Add Selected") and sel != "-- Select --":
-                    storage["waiting_customers"].append(sel); st.rerun()
-        with col_right:
-            st.subheader("🚶 Walk-in")
-            new_name = st.text_input("Enter Name").strip()
-            if st.button("Add Walk-in") and new_name:
-                storage["waiting_customers"].append(new_name); st.rerun()
+    st.title("📝 GRE: Guest Relations")
+    
+    # 1. Add New Customer
+    with st.expander("➕ Add New Entry", expanded=True):
+        new_name = st.text_input("Customer Full Name")
+        if st.button("Add to Waiting List") and new_name:
+            new_id = len(storage["waiting_customers"]) + 1
+            storage["waiting_customers"].append({"id": new_id, "name": new_name})
+            st.rerun()
+
+    # 2. Edit/Manage Waiting List
+    st.subheader("⏳ Current Waiting List")
+    for idx, cust in enumerate(storage["waiting_customers"]):
+        col1, col2, col3 = st.columns([3, 1, 1])
+        with col1:
+            # Edit Name logic
+            new_val = st.text_input(f"Name (ID: {cust['id']})", value=cust['name'], key=f"edit_{idx}")
+            storage["waiting_customers"][idx]['name'] = new_val
+        with col3:
+            if st.button("Remove", key=f"rem_{idx}"):
+                storage["waiting_customers"].pop(idx)
+                st.rerun()
 
     # --- MANAGER DASHBOARD ---
     elif st.session_state.role == "Manager":
-        st.title("👔 Manager Assignment")
-        col1, col2 = st.columns([1, 1.2])
-        with col1:
-            if storage["waiting_customers"]:
-                sel_c = st.selectbox("Select Customer:", storage["waiting_customers"])
-                b_avail = [k for k, v in storage["booths"].items() if v is None]
-                if b_avail:
-                    sel_b = st.selectbox("Assign to Cabin:", b_avail)
-                    if st.button("Confirm"):
-                        storage["booths"][sel_b] = sel_c
-                        storage["waiting_customers"].remove(sel_c); st.rerun()
-        with col2:
-            st.subheader("Cabin Status")
-            for b, c in storage["booths"].items():
-                if c:
-                    st.write(f"**Cabin {b}:** {c}")
-                    if st.button(f"Release Cabin {b}", key=f"rel_{b}"):
-                        storage["booths"][b] = None; st.rerun()
+    st.title("👔 Manager: Cabin Assignment")
+    
+    col_assign, col_status = st.columns([1, 1])
+    
+    with col_assign:
+        st.subheader("Assign Customer")
+        if storage["waiting_customers"]:
+            cust_to_assign = st.selectbox("Select from Waitlist", 
+                                        options=storage["waiting_customers"], 
+                                        format_func=lambda x: x['name'])
+            free_cabins = [k for k, v in storage["booths"].items() if v is None]
+            
+            if free_cabins:
+                target_cabin = st.selectbox("Assign to Free Cabin", free_cabins)
+                if st.button("Confirm Assignment"):
+                    storage["booths"][target_cabin] = cust_to_assign['name']
+                    storage["waiting_customers"].remove(cust_to_assign)
+                    st.rerun()
+            else:
+                st.warning("All cabins are currently occupied.")
+        else:
+            st.info("No customers in waiting list.")
+
+    with col_status:
+        st.subheader("Cabin Occupancy")
+        for cab in "ABCDEFGH":
+            occupant = storage["booths"][cab]
+            status_color = "🔴" if occupant else "🟢 FREE"
+            label = f"**Cabin {cab}:** {occupant if occupant else ''}"
+            st.markdown(f"{status_color} {label}")
+            if occupant:
+                if st.button(f"Clear Cabin {cab}", key=f"clr_{cab}"):
+                    storage["booths"][cab] = None
+                    storage["approved_units"][cab] = [] # Reset approvals on exit
+                    st.rerun()
 
     # --- SALES DASHBOARD ---
     elif st.session_state.role == "Sales":
-        if "search_id_input" not in st.session_state: st.session_state.search_id_input = ""
-        my_cabin = st.selectbox("Select Your Cabin:", list("ABCDEFGHIJ"), key="sales_cabin_sel")
-        cust_name = storage["booths"].get(my_cabin)
+    my_cabin = st.selectbox("Your Assigned Cabin:", list("ABCDEFGH"))
+    current_cust = storage["booths"].get(my_cabin)
+    
+    if not current_cust:
+        st.warning("Waiting for Manager to assign a customer to this cabin...")
+    else:
+        st.header(f"Serving: {current_cust}")
+        inv = load_inventory()
         
-        st.title("🏙️ Stage 3: Sales Portal")
+        st.subheader("🏢 Unit Selection")
+        cols = st.columns(6)
         
-        if not cust_name:
-            st.warning(f"Cabin {my_cabin} is empty. Wait for Manager.")
-        else:
-            st.success(f"👤 Serving: **{cust_name}**")
-            inventory = load_data()
+        for i, row in inv.iterrows():
+            uid = str(row['ID']).strip()
+            # 1. Check if it's a Refuge Floor
+            if uid in ["A-705", "A-1205"]:
+                cols[i%6].button(f"🚫 {uid}\nRefuge", disabled=True, key=f"btn_{uid}")
+                continue
             
-            # Request Unblock
-            st.subheader("🔑 Request Inventory Unblock")
-            chances = storage["unblock_counts"].get(my_cabin, 0)
-            if chances < 2:
-                req_unit = st.text_input("Unit ID:").strip().upper()
-                if st.button("Send Request") and req_unit:
-                    storage["pending_requests"][my_cabin] = req_unit
-                    st.toast(f"Requested {req_unit}")
-            
-            # GRID
-            st.subheader("🏢 Unit Inventory")
-            grid_cols = st.columns(6)
-            for idx, row_data in inventory.iterrows():
-                uid = str(row_data['ID']).upper().strip()
-                approved_list = storage["approved_units"].get(my_cabin, [])
-                
-                is_sold = uid in storage["sold_units"]
-                is_busy = uid in storage["in_process_units"] and storage["in_process_units"][uid] != my_cabin
-                is_unlocked = (uid in approved_list)
-                
-                btn_label = uid
-                is_disabled = True
-                
-                if is_sold: btn_label, is_disabled = "⛔ SOLD", True
-                elif is_busy: btn_label, is_disabled = "⏳ BUSY", True
-                elif is_unlocked: btn_label, is_disabled = f"🔓 {uid}", False
-                else: btn_label, is_disabled = f"🔒 {uid}", True
+            # 2. Determine Status
+            is_sold = uid in storage["sold_units"] or (str(row['Token Number']).strip() != "" and str(row['Token Number']) != "nan")
+            is_open = (row['Customer Allotted'] == "" or pd.isna(row['Customer Allotted']))
+            is_approved = uid in storage["approved_units"].get(my_cabin, [])
+            is_busy = uid in storage["in_process_units"] and storage["in_process_units"][uid] != my_cabin
 
-                if grid_cols[idx % 6].button(btn_label, key=f"btn_{uid}", disabled=is_disabled, use_container_width=True):
+            # 3. UI Logic
+            if is_sold:
+                cols[i%6].button(f"⛔ {uid}\nSOLD", disabled=True, key=f"btn_{uid}")
+            elif is_busy:
+                cols[i%6].button(f"⏳ {uid}\nBUSY", disabled=True, key=f"btn_{uid}")
+            elif is_open or is_approved:
+                # This unit is available to click
+                if cols[i%6].button(f"✅ {uid}\nSelect", key=f"btn_{uid}"):
                     st.session_state.search_id_input = uid
                     storage["in_process_units"][uid] = my_cabin
                     st.rerun()
+            else:
+                # Locked - requires Admin request
+                if cols[i%6].button(f"🔒 {uid}\nLocked", key=f"btn_{uid}"):
+                    storage["pending_requests"][my_cabin] = uid
+                    st.toast(f"Requesting unlock for {uid}")
 
             # COST SHEET
             search_id = st.session_state.search_id_input
@@ -308,8 +325,28 @@ else:
 
     # --- ADMIN DASHBOARD ---
     elif st.session_state.role == "Tarangan":
-        st.title("🛠️ Admin Master Control")
-        t1, t2, t3 = st.tabs(["📊 Sales Report", "🔑 Pending Requests", "🏢 Unit Grid Status"])
+    st.title("Admin Control Panel")
+    inv = load_inventory()
+    
+    # Unit Grid Status
+    st.subheader("Live Project View")
+    a_cols = st.columns(8)
+    for i, r in inv.iterrows():
+        uid = str(r['ID']).strip()
+        is_sold = uid in storage["sold_units"] or (str(r['Token Number']).strip() != "" and str(r['Token Number']) != "nan")
+        is_open = (r['Customer Allotted'] == "" or pd.isna(r['Customer Allotted']))
+        
+        # Color Coding
+        if uid in ["A-705", "A-1205"]: color, txt = "#6c757d", "REFUGE"
+        elif is_sold: color, txt = "#dc3545", "SOLD"
+        elif uid in storage["in_process_units"]: color, txt = "#ffc107", "IN NEGOTIATION"
+        elif is_open: color, txt = "#28a745", "OPEN"
+        else: color, txt = "#007bff", "LOCKED (DB)"
+
+        a_cols[i%8].markdown(f"""
+            <div style="background:{color}; color:white; padding:5px; border-radius:3px; text-align:center; font-size:10px; margin-bottom:5px;">
+            {uid}<br><b>{txt}</b></div>
+        """, unsafe_allow_html=True)
         
         with t2:
             pending = storage.get("pending_requests", {})
