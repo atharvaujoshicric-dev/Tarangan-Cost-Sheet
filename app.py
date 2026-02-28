@@ -488,7 +488,7 @@ else:
 
         with t3:
             # --- ADMIN / MANAGER DASHBOARD ---
-    elif st.session_state.role in ["Manager", "Admin"]:
+    elif st.session_state.role in ["Admin"]:
         st.title("🛡️ Admin Control Panel")
         
         # Section: Handle Sales Requests
