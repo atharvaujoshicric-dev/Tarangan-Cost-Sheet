@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import re
 import urllib.parse
-import sqlite3
 from fpdf import FPDF
 import datetime
 import smtplib
@@ -11,117 +10,95 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
 from email import encoders
 from email.utils import formataddr
+import gspread
+from google.oauth2.service_account import Credentials
 
-# ================= DATABASE =================
+# ================= GOOGLE SHEETS SETUP =================
 
-DB_FILE = "tarangan.db"
+scope = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive"
+]
 
-def get_connection():
-    return sqlite3.connect(DB_FILE, check_same_thread=False)
+creds = Credentials.from_service_account_info(
+    st.secrets["gcp_service_account"],
+    scopes=scope
+)
 
-def init_db():
-    conn = get_connection()
-    c = conn.cursor()
+gc = gspread.authorize(creds)
 
-    c.execute("""CREATE TABLE IF NOT EXISTS waiting_customers (
-                    name TEXT PRIMARY KEY
-                )""")
+SPREADSHEET_ID = "1L-anmwniKOgT2DfNJMdqYkMsRw4slAcH2MUR5OPfcP0"
+sheet = gc.open_by_key(SPREADSHEET_ID)
 
-    c.execute("""CREATE TABLE IF NOT EXISTS booths (
-                    cabin TEXT PRIMARY KEY,
-                    customer TEXT
-                )""")
+# ================= BACKEND HELPERS =================
 
-    c.execute("""CREATE TABLE IF NOT EXISTS sold_units (
-                    unit TEXT PRIMARY KEY
-                )""")
+def get_ws(name):
+    try:
+        return sheet.worksheet(name)
+    except:
+        ws = sheet.add_worksheet(title=name, rows="1000", cols="20")
+        return ws
 
-    c.execute("""CREATE TABLE IF NOT EXISTS download_history (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    date TEXT,
-                    unit TEXT,
-                    customer TEXT,
-                    total INTEGER
-                )""")
-
-    for cabin in "ABCDEFGHIJ":
-        c.execute("INSERT OR IGNORE INTO booths (cabin, customer) VALUES (?, ?)", (cabin, None))
-
-    conn.commit()
-    conn.close()
-
-init_db()
-
-# ================= HELPERS =================
+# ---------- WAITING LIST ----------
+def get_waiting():
+    ws = get_ws("Waiting_List")
+    return ws.col_values(1)
 
 def add_waiting(name):
-    conn = get_connection()
-    c = conn.cursor()
-    c.execute("INSERT OR IGNORE INTO waiting_customers VALUES (?)", (name,))
-    conn.commit()
-    conn.close()
-
-def get_waiting():
-    conn = get_connection()
-    df = pd.read_sql("SELECT * FROM waiting_customers", conn)
-    conn.close()
-    return df["name"].tolist()
+    ws = get_ws("Waiting_List")
+    ws.append_row([name])
 
 def remove_waiting(name):
-    conn = get_connection()
-    c = conn.cursor()
-    c.execute("DELETE FROM waiting_customers WHERE name=?", (name,))
-    conn.commit()
-    conn.close()
+    ws = get_ws("Waiting_List")
+    data = ws.get_all_values()
+    for i, row in enumerate(data):
+        if row and row[0] == name:
+            ws.delete_rows(i + 1)
+            break
 
-def assign_booth(cabin, name):
-    conn = get_connection()
-    c = conn.cursor()
-    c.execute("UPDATE booths SET customer=? WHERE cabin=?", (name, cabin))
-    conn.commit()
-    conn.close()
+# ---------- BOOTHS ----------
+def init_booths():
+    ws = get_ws("Booths")
+    if not ws.get_all_values():
+        ws.append_row(["Cabin", "Customer"])
+        for cabin in "ABCDEFGHIJ":
+            ws.append_row([cabin, ""])
 
 def get_booths():
-    conn = get_connection()
-    df = pd.read_sql("SELECT * FROM booths", conn)
-    conn.close()
-    return dict(zip(df["cabin"], df["customer"]))
+    ws = get_ws("Booths")
+    data = ws.get_all_records()
+    return {row["Cabin"]: row["Customer"] for row in data}
+
+def assign_booth(cabin, customer):
+    ws = get_ws("Booths")
+    cell = ws.find(cabin)
+    ws.update_cell(cell.row, 2, customer)
 
 def clear_booth(cabin):
-    conn = get_connection()
-    c = conn.cursor()
-    c.execute("UPDATE booths SET customer=NULL WHERE cabin=?", (cabin,))
-    conn.commit()
-    conn.close()
+    ws = get_ws("Booths")
+    cell = ws.find(cabin)
+    ws.update_cell(cell.row, 2, "")
+
+# ---------- SOLD ----------
+def get_sold():
+    ws = get_ws("Sold_Units")
+    return ws.col_values(1)
 
 def mark_sold(unit):
-    conn = get_connection()
-    c = conn.cursor()
-    c.execute("INSERT OR IGNORE INTO sold_units VALUES (?)", (unit,))
-    conn.commit()
-    conn.close()
+    ws = get_ws("Sold_Units")
+    ws.append_row([unit])
 
-def get_sold():
-    conn = get_connection()
-    df = pd.read_sql("SELECT * FROM sold_units", conn)
-    conn.close()
-    return df["unit"].tolist()
-
+# ---------- HISTORY ----------
 def add_history(date, unit, customer, total):
-    conn = get_connection()
-    c = conn.cursor()
-    c.execute("INSERT INTO download_history (date, unit, customer, total) VALUES (?, ?, ?, ?)",
-              (date, unit, customer, total))
-    conn.commit()
-    conn.close()
+    ws = get_ws("Download_History")
+    ws.append_row([date, unit, customer, total])
 
 def get_history():
-    conn = get_connection()
-    df = pd.read_sql("SELECT * FROM download_history", conn)
-    conn.close()
-    return df
+    ws = get_ws("Download_History")
+    data = ws.get_all_records()
+    return pd.DataFrame(data)
 
-# ================= INVENTORY =================
+# ================= INVENTORY (READ ONLY) =================
 
 SHEET_ID = "1L-anmwniKOgT2DfNJMdqYkMsRw4slAcH2MUR5OPfcP0"
 TAB_NAME = "Inventory List"
@@ -155,6 +132,7 @@ if not st.session_state.auth:
         if u in creds and p == creds[u]:
             st.session_state.auth = True
             st.session_state.role = u
+            init_booths()
             st.rerun()
         else:
             st.error("Invalid credentials.")
@@ -171,7 +149,6 @@ else:
         st.title("📝 GRE Entry")
 
         waiting = get_waiting()
-        booths = get_booths()
 
         col1, col2 = st.columns(2)
 
@@ -182,7 +159,6 @@ else:
             if st.button("Add Selected"):
                 if selected != "-- Select --":
                     add_waiting(selected)
-                    st.success("Added")
                     st.rerun()
 
         with col2:
@@ -190,7 +166,6 @@ else:
             if st.button("Add Walk-in"):
                 if name:
                     add_waiting(f"(WI) {name}")
-                    st.success("Added")
                     st.rerun()
 
         st.subheader("Waiting List")
@@ -206,14 +181,13 @@ else:
 
         if waiting:
             cust = st.selectbox("Select Customer", waiting)
-            free = [k for k,v in booths.items() if v is None]
+            free = [k for k,v in booths.items() if not v]
 
             if free:
                 cabin = st.selectbox("Assign Cabin", free)
                 if st.button("Assign"):
                     assign_booth(cabin, cust)
                     remove_waiting(cust)
-                    st.success("Assigned")
                     st.rerun()
 
         st.subheader("Cabin Status")
@@ -255,94 +229,44 @@ else:
                 if st.button("Release"):
                     clear_booth(my_cabin)
                     del st.session_state.selected_unit
-                    st.warning("Released")
                     st.rerun()
 
     # ================= ADMIN =================
     elif role == "Tarangan":
         st.title("🛠 Admin Master Control")
 
-        tab1, tab2, tab3 = st.tabs(["📊 Sales Report", "🏢 Booth Status", "🚨 Reset System"])
+        tab1, tab2, tab3 = st.tabs(["📊 Sales Report", "🏢 Booth Status", "🚨 Reset"])
 
-        # ================= SALES REPORT =================
         with tab1:
-            st.subheader("Sales Performance")
-
-            history_df = get_history()
-
-            if not history_df.empty:
-
-                # Clean numeric
-                history_df["total"] = pd.to_numeric(history_df["total"], errors="coerce").fillna(0)
-
-                total_revenue = int(history_df["total"].sum())
-                units_sold = len(history_df)
-
-                m1, m2 = st.columns(2)
-                m1.metric("Units Sold", units_sold)
-                m2.metric("Total Revenue", f"₹ {total_revenue:,}")
-
-                st.divider()
-                st.dataframe(history_df, use_container_width=True)
-
-                # Export
-                csv = history_df.to_csv(index=False).encode("utf-8")
-                st.download_button(
-                    "📥 Export Report (CSV)",
-                    data=csv,
-                    file_name="tarangan_sales_report.csv",
-                    mime="text/csv"
-                )
-
+            df = get_history()
+            if not df.empty:
+                st.dataframe(df, use_container_width=True)
             else:
-                st.info("No sales recorded yet.")
+                st.info("No sales yet.")
 
-        # ================= BOOTH STATUS =================
         with tab2:
-            st.subheader("Live Booth Status")
-
             booths = get_booths()
-            sold_units = get_sold()
+            sold = get_sold()
 
-            col1, col2 = st.columns(2)
+            st.subheader("Cabins")
+            for b,c in booths.items():
+                st.write(f"{b}: {c if c else 'FREE'}")
 
-            with col1:
-                st.markdown("### Cabin Assignments")
-                for cabin, customer in booths.items():
-                    st.write(f"Cabin {cabin}: {customer if customer else 'FREE'}")
+            st.subheader("Sold Units")
+            for s in sold:
+                st.write(s)
 
-            with col2:
-                st.markdown("### Sold Units")
-                if sold_units:
-                    for unit in sold_units:
-                        st.write(f"Unit {unit}")
-                else:
-                    st.write("No units sold yet.")
-
-        # ================= SYSTEM RESET =================
         with tab3:
-            st.subheader("Danger Zone")
-
-            reset_pw = st.text_input("Enter Reset Password", type="password")
-
-            if st.button("💣 WIPE ALL DATA"):
-
-                if reset_pw == "Atharva Joshi":
-
-                    conn = get_connection()
-                    c = conn.cursor()
-
-                    # Clear all tables
-                    c.execute("DELETE FROM waiting_customers")
-                    c.execute("DELETE FROM sold_units")
-                    c.execute("DELETE FROM download_history")
-                    c.execute("UPDATE booths SET customer=NULL")
-
-                    conn.commit()
-                    conn.close()
-
-                    st.success("System wiped successfully.")
+            pw = st.text_input("Reset Password", type="password")
+            if st.button("WIPE ALL DATA"):
+                if pw == "Atharva Joshi":
+                    get_ws("Waiting_List").clear()
+                    get_ws("Sold_Units").clear()
+                    get_ws("Download_History").clear()
+                    ws = get_ws("Booths")
+                    ws.clear()
+                    init_booths()
+                    st.success("System Reset")
                     st.rerun()
-
                 else:
                     st.error("Incorrect Password")
