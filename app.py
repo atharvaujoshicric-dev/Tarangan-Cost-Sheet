@@ -333,7 +333,7 @@ else:
                     uid = str(row_data['ID']).upper().strip()
                     
                     # --- REFUGE UNIT LOGIC ---
-                    if uid in ["705", "1205"]:
+                    if uid in ["A-705", "A-1205"]:
                         btn_label = "🏥 REFUGE"
                         is_disabled = True
                     else:
