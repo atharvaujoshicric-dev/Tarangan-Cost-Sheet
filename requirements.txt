@@ -3,3 +3,5 @@ pandas
 fpdf
 num2words
 xlsxwriter
+gspread
+google-auth
