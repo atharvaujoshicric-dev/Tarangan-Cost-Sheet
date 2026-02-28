@@ -149,6 +149,7 @@ else:
     # --- GRE DASHBOARD ---
     elif st.session_state.role == "GRE":
         st.title("📝 Stage 1: GRE Entry")
+        if st.sidebar.button("🔄 Global Refresh"): st.rerun()
         
         # 1. Load data and clean column names
         df_master = load_data()
@@ -214,6 +215,7 @@ else:
     # --- MANAGER DASHBOARD ---
     elif st.session_state.role == "Manager":
         st.title("👔 Manager Assignment")
+        if st.sidebar.button("🔄 Global Refresh"): st.rerun()
         col1, col2 = st.columns([1, 1.2])
         
         with col1:
@@ -267,7 +269,7 @@ else:
         ist_now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=5, minutes=30)))
         
         st.title("🏙️ Stage 3: Sales Portal")
-
+        if st.sidebar.button("🔄 Global Refresh"): st.rerun()
         if not cust_name:
             st.warning(f"Cabin {my_cabin} is currently empty. Waiting for Manager...")
         else:
@@ -283,7 +285,7 @@ else:
                 
                 if not match.empty:
                     assigned_unit_from_sheet = str(match.iloc[0].get('ID', '')).upper()
-                    token_no = match.iloc[0].get('Token No', 'N/A')
+                    token_no = match.iloc[0].get('Token Number', 'N/A')
 
             # 3. Status Display
             st.success(f"👤 **Serving:** {cust_name} | 🎟️ **Token:** {token_no}")
