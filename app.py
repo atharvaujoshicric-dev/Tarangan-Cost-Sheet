@@ -164,16 +164,19 @@ def send_email(recipient_email, pdf_data, filename, details):
 @st.cache_resource
 def get_global_storage():
     return {
-        "sold_units":        set(),
-        "download_history":  [],
-        "activity_log":      [],
-        "booths":            {letter: None for letter in "ABCDEFGHIJ"},
-        "pending_requests":  {},
-        "approved_units":    {letter: [] for letter in "ABCDEFGHIJ"},
-        "unblock_counts":    {letter: 0  for letter in "ABCDEFGHIJ"},
-        "waiting_customers": [],
-        "opted_out":         [],
-        "visited_customers": set(),
+        "sold_units":           set(),
+        "download_history":     [],
+        "activity_log":         [],
+        "booths":               {letter: None for letter in "ABCDEFGHIJ"},
+        "pending_requests":     {},   # cabin -> list of (unit, request_index)
+        "approved_units":       {letter: [] for letter in "ABCDEFGHIJ"},
+        "unblock_counts":       {letter: 0  for letter in "ABCDEFGHIJ"},
+        "waiting_customers":    [],
+        "opted_out":            [],
+        "visited_customers":    set(),   # customer names who were assigned to a cabin
+        "inventory_released":   False,   # True after Sales hits Close & Release
+        # slot non-visit tracking: dict slot -> list of customer names
+        "slot_snapshots":       {},      # {"Slot 1": [...], "Slot 2": [...], "Slot 3": [...]}
     }
 
 storage = get_global_storage()
@@ -188,8 +191,55 @@ def reset_cabin(cabin):
 
 
 # ---------------------------------------------------------------------------
-# DATA
+# TOKEN / SLOT HELPERS
 # ---------------------------------------------------------------------------
+
+IST = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+
+SLOTS = [
+    {"name": "Slot 1", "token_range": (21, 45),  "start": (10, 0),  "end": (11, 30)},
+    {"name": "Slot 2", "token_range": (46, 71),  "start": (13, 0),  "end": (14, 30)},
+    {"name": "Slot 3", "token_range": (72, 9999), "start": (17, 0),  "end": (18, 0)},
+]
+
+
+def get_slot_for_token(token_no):
+    """Return slot dict for a given token number, or None."""
+    try:
+        t = int(token_no)
+    except (ValueError, TypeError):
+        return None
+    for slot in SLOTS:
+        lo, hi = slot["token_range"]
+        if lo <= t <= hi:
+            return slot
+    return None
+
+
+def current_slot(ist_now=None):
+    """Return the currently active slot dict, or None if outside all windows."""
+    if ist_now is None:
+        ist_now = datetime.datetime.now(IST)
+    h, m = ist_now.hour, ist_now.minute
+    mins = h * 60 + m
+    for slot in SLOTS:
+        s_mins = slot["start"][0] * 60 + slot["start"][1]
+        e_mins = slot["end"][0]   * 60 + slot["end"][1]
+        if s_mins <= mins <= e_mins:
+            return slot
+    return None
+
+
+def slot_label(slot):
+    if slot is None:
+        return "No active slot"
+    s, e = slot["start"], slot["end"]
+    return (
+        f"{slot['name']}  |  Tokens {slot['token_range'][0]}–{slot['token_range'][1]}"
+        f"  |  {s[0]:02d}:{s[1]:02d} – {e[0]:02d}:{e[1]:02d} IST"
+    )
+
+
 
 @st.cache_data(ttl=30)   # 30 s avoids hammering the Sheets API on every rerun
 def load_data():
@@ -464,7 +514,29 @@ else:
             st.warning(
                 f"Cabin {my_cabin} is currently empty. Please wait for Manager assignment."
             )
+
+            # ── Close & Release button (only when cabin is empty / after booking) ──
+            st.write("---")
+            st.subheader("📢 Inventory Release Control")
+            if storage["inventory_released"]:
+                st.success("✅ Inventory is currently RELEASED — all cabins can see units (locked for selection)")
+                if st.button("🔒 Lock Inventory Again"):
+                    storage["inventory_released"] = False
+                    st.rerun()
+            else:
+                st.info("Inventory is currently LOCKED (normal mode)")
+                if st.button("🚀 Close & Release Inventory to All Cabins"):
+                    storage["inventory_released"] = True
+                    storage["activity_log"].append({
+                        "Time":   datetime.datetime.now(IST).strftime("%H:%M:%S"),
+                        "Action": "Inventory Released",
+                        "By":     "Sales",
+                        "Detail": "All cabins can now see inventory (locked for selection)",
+                    })
+                    st.success("Inventory released! All cabins can now see units. Customers must request admin to unlock.")
+                    st.rerun()
         else:
+
             inventory = load_data()
             assigned_unit_from_sheet = ""
             token_no  = "N/A"
@@ -480,30 +552,81 @@ else:
 
             st.success(f"👤 Serving: **{cust_name}** | 🎟️ Token: **{token_no}**")
 
-            # ── Request Unblock ────────────────────────────────────────────
+            # ── Slot info ──────────────────────────────────────────────────
+            token_slot = get_slot_for_token(token_no)
+            active_slot = current_slot(ist_now)
+            if token_slot:
+                st.info(f"📅 **{token_slot['name']}**  ·  "
+                        f"Tokens {token_slot['token_range'][0]}–{token_slot['token_range'][1]}  ·  "
+                        f"{token_slot['start'][0]:02d}:{token_slot['start'][1]:02d}–"
+                        f"{token_slot['end'][0]:02d}:{token_slot['end'][1]:02d} IST")
+            if active_slot:
+                st.caption(f"🟢 Active now: {slot_label(active_slot)}")
+            else:
+                st.caption("⏸️ No slot active at this moment")
+
+            # ── Inventory Released Banner ───────────────────────────────────
+            if storage.get("inventory_released"):
+                st.warning("📢 Inventory is RELEASED — units visible but locked. "
+                           "Request admin to unblock specific units.")
+
+
             st.write("---")
             st.subheader("🔑 Request Inventory Unblock")
             chances_used = storage["unblock_counts"].get(my_cabin, 0)
+            MAX_REQUESTS = 3
 
-            if chances_used < 2:
+            st.caption(f"Requests used: **{chances_used} / {MAX_REQUESTS}**")
+
+            if chances_used < MAX_REQUESTS:
                 c_req, c_send = st.columns([3, 1])
                 req_unit = c_req.text_input(
-                    "Enter Unit ID (e.g., 1503):", key="manual_req"
+                    "Enter Unit ID to unlock (e.g., 1503):", key="manual_req"
                 ).strip().upper()
                 if c_send.button("Send Request", use_container_width=True):
                     if req_unit:
-                        storage["pending_requests"][my_cabin] = req_unit
-                        st.toast(f"Request for {req_unit} sent to Admin!")
+                        # pending_requests is now: cabin -> list of {"unit": ..., "cabin": ...}
+                        if not isinstance(storage["pending_requests"].get(my_cabin), list):
+                            storage["pending_requests"][my_cabin] = []
+                        pending_units = [p["unit"] for p in storage["pending_requests"][my_cabin]]
+                        if req_unit in pending_units:
+                            st.warning(f"Request for {req_unit} already pending.")
+                        elif req_unit in storage["approved_units"].get(my_cabin, []):
+                            st.info(f"{req_unit} is already approved.")
+                        else:
+                            storage["pending_requests"][my_cabin].append({"unit": req_unit, "cabin": my_cabin})
+                            storage["unblock_counts"][my_cabin] = chances_used + 1
+                            storage["activity_log"].append({
+                                "Time":   datetime.datetime.now(IST).strftime("%H:%M:%S"),
+                                "Action": "Unblock Request",
+                                "By":     f"Cabin {my_cabin}",
+                                "Detail": f"Unit {req_unit} requested",
+                            })
+                            st.toast(f"Request for {req_unit} sent to Admin!")
+                            st.rerun()
                     else:
                         st.error("Please enter a Unit ID.")
             else:
-                st.error("🚫 Maximum (2) unblock requests used for this customer.")
+                st.error(f"🚫 Maximum ({MAX_REQUESTS}) unblock requests used for this customer.")
+
+            # Show pending & approved
+            if not isinstance(storage["pending_requests"].get(my_cabin), list):
+                storage["pending_requests"][my_cabin] = []
+            cabin_pending  = [p["unit"] for p in storage["pending_requests"].get(my_cabin, [])]
+            cabin_approved = storage["approved_units"].get(my_cabin, [])
+            if cabin_pending:
+                st.caption(f"⏳ Pending admin approval: {', '.join(cabin_pending)}")
+            if cabin_approved:
+                st.caption(f"✅ Approved units: {', '.join(cabin_approved)}")
 
             st.write("---")
 
             # ── Inventory Grid ─────────────────────────────────────────────
             st.subheader("🏢 Unit Inventory")
             search_id = st.session_state.search_id_input.upper()
+
+            # When inventory is released, show all units (locked); only assigned/approved selectable
+            inventory_released = storage.get("inventory_released", False)
 
             with st.expander("📁 View Inventory Grid", expanded=(search_id == "")):
                 grid_cols = st.columns(6)
@@ -527,6 +650,9 @@ else:
                         elif is_unlocked:
                             prefix = "🟢" if uid == assigned_unit_from_sheet else "🟡"
                             btn_label, is_disabled = f"{prefix} {uid}", False
+                        elif inventory_released:
+                            # Visible but cannot be selected — show with 👁 to distinguish
+                            btn_label, is_disabled = f"👁 {uid}", True
                         else:
                             btn_label, is_disabled = f"🔒 {uid}", True
 
@@ -703,8 +829,9 @@ else:
         if st.sidebar.button("🔄 Global Refresh"):
             st.rerun()
 
-        t1, t2, t3, t4 = st.tabs(
-            ["📊 Sales Report", "🕵️ Activity Tracker", "📦 Inventory", "🚨 Reset"]
+        t1, t2, t3, t4, t5, t6 = st.tabs(
+            ["📊 Sales Report", "🕵️ Activity Tracker", "📦 Unblock Requests",
+             "🏢 Live Inventory", "🕐 Slot Tracker", "🚨 Reset"]
         )
 
         with t1:
@@ -753,31 +880,65 @@ else:
             else:
                 st.info("No activity recorded.")
 
+        # ── Tab 3: Unblock Requests ─────────────────────────────────────────
         with t3:
-            st.subheader("🔑 Inventory Access Control")
+            st.subheader("🔑 Inventory Unblock Requests")
+
+            # Inventory release toggle
+            inv_released = storage.get("inventory_released", False)
+            rel_col1, rel_col2 = st.columns([3, 1])
+            rel_col1.info(
+                f"📢 Inventory Status: **{'RELEASED 🟢' if inv_released else 'LOCKED 🔴'}**"
+            )
+            if inv_released:
+                if rel_col2.button("🔒 Lock Inventory"):
+                    storage["inventory_released"] = False
+                    st.rerun()
+            else:
+                if rel_col2.button("🚀 Release Inventory"):
+                    storage["inventory_released"] = True
+                    st.rerun()
+
+            st.divider()
             st.markdown("### Pending Requests")
             pending = storage.get("pending_requests", {})
 
-            if not pending:
-                st.info("No pending unblock requests.")
-            else:
-                for cabin, requested_unit in list(pending.items()):
-                    c1, c2, c3 = st.columns([1, 1, 1])
+            any_pending = False
+            for cabin, req_list in list(pending.items()):
+                # Normalise old string format to list
+                if isinstance(req_list, str):
+                    req_list = [{"unit": req_list, "cabin": cabin}]
+                    storage["pending_requests"][cabin] = req_list
+                for req in list(req_list):
+                    any_pending = True
+                    requested_unit = req["unit"]
+                    c1, c2, c3, c4 = st.columns([1, 1, 1, 1])
                     c1.write(f"**Cabin {cabin}**")
                     c2.warning(f"Unit: {requested_unit}")
-                    if c3.button(
-                        f"✅ Approve {requested_unit}",
-                        key=f"app_{cabin}_{requested_unit}"
-                    ):
+                    if c3.button(f"✅ Approve", key=f"app_{cabin}_{requested_unit}"):
                         storage["approved_units"].setdefault(cabin, [])
                         if requested_unit not in storage["approved_units"][cabin]:
                             storage["approved_units"][cabin].append(requested_unit)
-                            storage["unblock_counts"][cabin] = (
-                                storage["unblock_counts"].get(cabin, 0) + 1
-                            )
-                        del storage["pending_requests"][cabin]
+                        req_list.remove(req)
+                        if not req_list:
+                            storage["pending_requests"].pop(cabin, None)
+                        storage["activity_log"].append({
+                            "Time":   datetime.datetime.now(IST).strftime("%H:%M:%S"),
+                            "Action": "Unblock Approved",
+                            "By":     "Admin",
+                            "Detail": f"Unit {requested_unit} for Cabin {cabin}",
+                        })
                         st.success(f"Approved {requested_unit} for Cabin {cabin}")
                         st.rerun()
+                    if c4.button(f"❌ Reject", key=f"rej_{cabin}_{requested_unit}"):
+                        req_list.remove(req)
+                        if not req_list:
+                            storage["pending_requests"].pop(cabin, None)
+                        st.warning(f"Rejected {requested_unit} for Cabin {cabin}")
+                        st.rerun()
+
+            if not any_pending:
+                st.info("No pending unblock requests.")
 
             st.divider()
             st.markdown("### Currently Unlocked Units")
@@ -796,7 +957,136 @@ else:
             if not has_approved:
                 st.write("No units are currently manually unlocked.")
 
+        # ── Tab 4: Live Inventory ──────────────────────────────────────────
         with t4:
+            st.subheader("🏢 Live Inventory Status")
+            inv_data = load_data()
+
+            if inv_data is not None and not inv_data.empty:
+                sold_set  = storage.get("sold_units", set())
+                booths    = storage.get("booths", {})
+                # Build a display dataframe
+                rows_disp = []
+                for _, r in inv_data.iterrows():
+                    uid = str(r.get('ID', '')).upper().strip()
+                    if uid in ["705", "1205"]:
+                        status = "🏥 Refuge"
+                    elif uid in sold_set:
+                        status = "⛔ Sold"
+                    elif storage.get("inventory_released"):
+                        status = "👁 Released (view only)"
+                    else:
+                        # Check if assigned to any cabin customer
+                        cust_allotted = str(r.get('Customer Allotted', '')).strip()
+                        cabin_assigned = None
+                        for cb, cx in booths.items():
+                            if cx and str(cx).upper() == str(cust_allotted).upper():
+                                cabin_assigned = cb
+                                break
+                        if cabin_assigned:
+                            status = f"🟢 Active – Cabin {cabin_assigned}"
+                        else:
+                            status = "🔒 Locked"
+                    rows_disp.append({
+                        "Unit ID":   uid,
+                        "Floor":     r.get("Floor", ""),
+                        "Carpet":    r.get("CARPET", ""),
+                        "Status":    status,
+                        "Customer":  r.get("Customer Allotted", ""),
+                        "Agr. Value": r.get("Agreement Value", ""),
+                    })
+
+                df_live = pd.DataFrame(rows_disp)
+
+                # Summary metrics
+                total   = len(df_live)
+                sold_c  = len(df_live[df_live["Status"].str.startswith("⛔")])
+                active  = len(df_live[df_live["Status"].str.startswith("🟢")])
+                locked  = len(df_live[df_live["Status"].str.startswith("🔒")])
+                released= len(df_live[df_live["Status"].str.startswith("👁")])
+
+                mc1, mc2, mc3, mc4, mc5 = st.columns(5)
+                mc1.metric("Total Units", total)
+                mc2.metric("⛔ Sold",     sold_c)
+                mc3.metric("🟢 Active",   active)
+                mc4.metric("🔒 Locked",   locked)
+                mc5.metric("👁 Released", released)
+
+                st.divider()
+                # Filter
+                filt = st.selectbox("Filter by status:", ["All", "⛔ Sold", "🟢 Active", "🔒 Locked", "👁 Released"])
+                if filt != "All":
+                    df_show = df_live[df_live["Status"].str.startswith(filt[:2])]
+                else:
+                    df_show = df_live
+
+                st.dataframe(df_show, use_container_width=True)
+            else:
+                st.info("Inventory not loaded.")
+
+        # ── Tab 5: Slot Tracker ────────────────────────────────────────────
+        with t5:
+            st.subheader("🕐 Token Slot Tracker")
+            ist_now_admin = datetime.datetime.now(IST)
+            active_s = current_slot(ist_now_admin)
+
+            # Display all slots with timing
+            for sl in SLOTS:
+                is_active = active_s and active_s["name"] == sl["name"]
+                badge = "🟢 **ACTIVE NOW**" if is_active else "⏸️"
+                st.markdown(
+                    f"**{sl['name']}** {badge}  ·  "
+                    f"Tokens {sl['token_range'][0]}–{sl['token_range'][1] if sl['token_range'][1] < 9999 else '∞'}  ·  "
+                    f"{sl['start'][0]:02d}:{sl['start'][1]:02d} – {sl['end'][0]:02d}:{sl['end'][1]:02d} IST"
+                )
+
+            st.divider()
+
+            # Snapshot: admin can take a snapshot at end of a slot to record non-visited
+            inv_data2 = load_data()
+            st.markdown("### 📸 Take Slot Snapshot (Non-Visited Customers)")
+            snap_slot = st.selectbox("Select Slot to Snapshot:", ["Slot 1", "Slot 2", "Slot 3"])
+
+            if st.button(f"📸 Snapshot {snap_slot} Non-Visited Now"):
+                # Determine token range for selected slot
+                slot_def = next((s for s in SLOTS if s["name"] == snap_slot), None)
+                if slot_def and inv_data2 is not None:
+                    lo, hi = slot_def["token_range"]
+                    visited = storage.get("visited_customers", set())
+                    non_visited = []
+                    if "Token Number" in inv_data2.columns and "Customer Allotted" in inv_data2.columns:
+                        for _, r in inv_data2.iterrows():
+                            try:
+                                t_num = int(r.get("Token Number", 0))
+                            except (ValueError, TypeError):
+                                continue
+                            if lo <= t_num <= hi:
+                                cust = str(r.get("Customer Allotted", "")).strip()
+                                if cust and str(cust).upper() not in {v.upper() for v in visited}:
+                                    non_visited.append({
+                                        "Token": t_num,
+                                        "Customer": cust,
+                                        "Unit": r.get("ID", ""),
+                                    })
+                    storage["slot_snapshots"][snap_slot] = non_visited
+                    st.success(f"Snapshot taken: {len(non_visited)} non-visited customers in {snap_slot}")
+                    st.rerun()
+
+            st.divider()
+            st.markdown("### Non-Visited Customers by Slot")
+            snapshots = storage.get("slot_snapshots", {})
+            if not snapshots:
+                st.info("No snapshots taken yet. Use the button above at the end of each slot.")
+            else:
+                for sname, nv_list in snapshots.items():
+                    with st.expander(f"{sname} — {len(nv_list)} non-visited", expanded=True):
+                        if nv_list:
+                            st.dataframe(pd.DataFrame(nv_list), use_container_width=True)
+                        else:
+                            st.success("All customers visited!")
+
+        # ── Tab 6: Reset ───────────────────────────────────────────────────
+        with t6:
             st.subheader("System Reset")
             st.warning("⚠️ This will erase ALL sales data, bookings, and cabin assignments.")
             reset_pw = st.text_input(
@@ -804,18 +1094,21 @@ else:
             )
             if st.button("💣 WIPE ALL DATA"):
                 if reset_pw == RESET_PASSWORD:
-                    storage["sold_units"]        = set()
-                    storage["download_history"]  = []
-                    storage["activity_log"]      = []
-                    storage["waiting_customers"] = []
-                    storage["booths"]            = {letter: None for letter in "ABCDEFGHIJ"}
-                    storage["pending_requests"]  = {}
-                    storage["approved_units"]    = {letter: [] for letter in "ABCDEFGHIJ"}
-                    storage["unblock_counts"]    = {letter: 0  for letter in "ABCDEFGHIJ"}
-                    storage["visited_customers"] = set()
-                    storage["opted_out"]         = []
+                    storage["sold_units"]          = set()
+                    storage["download_history"]    = []
+                    storage["activity_log"]        = []
+                    storage["waiting_customers"]   = []
+                    storage["booths"]              = {letter: None for letter in "ABCDEFGHIJ"}
+                    storage["pending_requests"]    = {}
+                    storage["approved_units"]      = {letter: [] for letter in "ABCDEFGHIJ"}
+                    storage["unblock_counts"]      = {letter: 0  for letter in "ABCDEFGHIJ"}
+                    storage["visited_customers"]   = set()
+                    storage["opted_out"]           = []
+                    storage["inventory_released"]  = False
+                    storage["slot_snapshots"]      = {}
                     st.cache_resource.clear()
                     st.success("System fully reset.")
                     st.rerun()
                 else:
                     st.error("Incorrect reset password.")
+
