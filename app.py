@@ -320,7 +320,7 @@ else:
                 match = inventory[inventory['Customer Name'].astype(str).str.upper() == str(cust_name).upper()]
                 if not match.empty:
                     assigned_unit_from_sheet = str(match.iloc[0].get('ID', '')).upper()
-                    token_no = match.iloc[0].get('Token No', 'N/A')
+                    token_no = match.iloc[0].get('Token Number', 'N/A')
 
             st.success(f"👤 Serving: **{cust_name}** | 🎟️ Token: **{token_no}**")
 
