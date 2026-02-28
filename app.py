@@ -515,12 +515,18 @@ else:
                                         st.toast("Email sent to Admin!")
                                     
                                     st.download_button(
-                                        label="📥 Click here to Download PDF",
+                                        label="📥 Download & Free Cabin",
                                         data=pdf_bytes,
-                                        file_name=f"Tarangan_{search_id}_{cust_name}.pdf",
+                                        file_name=f"Tarangan_{search_id}.pdf",
                                         mime="application/pdf",
-                                        use_container_width=True
-                                    )
+                                        use_container_width=True,
+                                        # This 'on_click' is the secret to clearing the Manager's view immediately
+                                        on_click=lambda: (
+                                            storage["booths"].update({my_cabin: None}),
+                                            storage["approved_units"].update({my_cabin: []}),
+                                            storage["unblock_counts"].update({my_cabin: 0}),
+                                            st.session_state.update({"search_id_input": ""})
+                                        ))
                                 else:
                                     st.error("Name is required to finalize the booking.")
                     
