@@ -254,6 +254,7 @@ else:
                         st.markdown("---")
                 else:
                     st.write(f"**Cabin {b}:** 🟢 Free")
+                    
     # --- SALES DASHBOARD ---
     elif st.session_state.role == "Sales":
         # 1. Initialize variables
@@ -276,9 +277,9 @@ else:
             token_no = "N/A"
             
             # Search the Google Sheet for this Customer's Name
-            if 'Customer Name' in inventory.columns:
+            if 'Customer Allotted' in inventory.columns:
                 # We use .strip() and .upper() to ensure a perfect match
-                match = inventory[inventory['Customer Name'].astype(str).str.upper() == str(cust_name).upper()]
+                match = inventory[inventory['Customer Allotted'].astype(str).str.upper() == str(cust_name).upper()]
                 
                 if not match.empty:
                     assigned_unit_from_sheet = str(match.iloc[0].get('ID', '')).upper()
