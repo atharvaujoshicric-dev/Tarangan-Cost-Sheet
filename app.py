@@ -201,6 +201,38 @@ IST = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
 # Units permanently blocked as Refuge — no sales, no requests, ever
 REFUGE_UNITS = {"705", "1205", "A-705", "A-1205"}
 
+# Building layout: A-101 to A-1306, 6 flats per floor, 13 floors
+# Valid format: A-<floor><unit> where floor 1-13, unit 01-06
+# e.g. A-101, A-106, A-201, A-1306
+def is_valid_unit_id(uid: str) -> tuple[bool, str]:
+    """
+    Validates unit ID against the building layout: floors 1–13, units 01–06 per floor.
+    Sheet IDs are numeric: 101, 203, 1306 etc.
+    Format: <floor><2-digit-unit>, e.g. 101 = floor 1 unit 01, 1306 = floor 13 unit 06.
+    Accepts: A-203, A203, 203 — normalises to the numeric form the sheet uses.
+    Returns (True, normalised_numeric_id) or (False, error_message).
+    """
+    uid = uid.strip().upper()
+    # Strip A- or A prefix
+    numeric = re.sub(r'^A-?', '', uid)
+    # Must be 3 or 4 digits (floor 1-9 → 3 digits, floor 10-13 → 4 digits)
+    if not re.match(r'^\d{3,4}$', numeric):
+        return False, (
+            "Unit must be in format A-101 to A-1306 "
+            "(e.g. A-203, A-1106, or just 203)."
+        )
+    # Last 2 digits = unit number (01-06), remaining = floor
+    unit_num  = int(numeric[-2:])   # e.g. 203 → 03 = 3
+    floor_num = int(numeric[:-2])   # e.g. 203 → 2
+    if not (1 <= floor_num <= 13):
+        return False, f"Floor {floor_num} doesn't exist. Valid floors: 1–13."
+    if not (1 <= unit_num <= 6):
+        return False, (
+            f"Unit {unit_num:02d} doesn't exist on floor {floor_num}. "
+            f"Only 6 units per floor (01–06)."
+        )
+    return True, numeric   # return the plain numeric form used in the sheet
+
 SLOTS = [
     {"name": "Slot 1", "token_range": (21, 45),  "start": (10, 0),  "end": (11, 30)},
     {"name": "Slot 2", "token_range": (46, 71),  "start": (13, 0),  "end": (14, 30)},
@@ -623,36 +655,49 @@ else:
 
             if chances_used < MAX_REQUESTS:
                 c_req, c_send = st.columns([3, 1])
-                req_unit = c_req.text_input(
-                    "Enter Unit ID to unlock (e.g., 1503):", key="manual_req"
+                req_unit_raw = c_req.text_input(
+                    "Enter Unit ID (e.g. A-203):", key="manual_req",
+                    placeholder="A-101 to A-1306"
                 ).strip().upper()
                 if c_send.button("Send Request", use_container_width=True):
-                    if req_unit:
-                        # pending_requests is now: cabin -> list of {"unit": ..., "cabin": ...}
-                        if not isinstance(storage["pending_requests"].get(my_cabin), list):
-                            storage["pending_requests"][my_cabin] = []
-                        pending_units = [p["unit"] for p in storage["pending_requests"][my_cabin]]
-
-                        # Hard-block refuge units — no request allowed, ever
-                        if req_unit in REFUGE_UNITS or req_unit in {"705", "1205"}:
-                            st.error(f"🚫 Unit {req_unit} is a REFUGE unit and can never be unlocked.")
-                        elif req_unit in storage["sold_units"]:
-                            st.error(f"🚫 Unit {req_unit} is already SOLD. Request not sent.")
-                        elif req_unit in pending_units:
-                            st.warning(f"Request for {req_unit} already pending.")
-                        elif req_unit in storage["approved_units"].get(my_cabin, []):
-                            st.info(f"{req_unit} is already approved.")
+                    if req_unit_raw:
+                        # Step 1: validate format
+                        valid, result = is_valid_unit_id(req_unit_raw)
+                        if not valid:
+                            st.error(f"❌ Invalid unit: {result}")
                         else:
-                            storage["pending_requests"][my_cabin].append({"unit": req_unit, "cabin": my_cabin})
-                            storage["unblock_counts"][my_cabin] = chances_used + 1
-                            storage["activity_log"].append({
-                                "Time":   datetime.datetime.now(IST).strftime("%H:%M:%S"),
-                                "Action": "Unblock Request",
-                                "By":     f"Cabin {my_cabin}",
-                                "Detail": f"Unit {req_unit} requested",
-                            })
-                            st.toast(f"Request for {req_unit} sent to Admin!")
-                            st.rerun()
+                            req_unit = result  # normalised ID e.g. A-203
+
+                            # Step 2: check it exists in the inventory sheet
+                            inv_ids = set(inventory['ID'].astype(str).str.upper().str.strip().tolist())
+                            if req_unit not in inv_ids:
+                                st.error(f"❌ Unit {req_unit} not found in inventory. Check the ID and try again.")
+                            else:
+                                # pending_requests is: cabin -> list of {"unit": ..., "cabin": ...}
+                                if not isinstance(storage["pending_requests"].get(my_cabin), list):
+                                    storage["pending_requests"][my_cabin] = []
+                                pending_units = [p["unit"] for p in storage["pending_requests"][my_cabin]]
+
+                                # Hard-block refuge units
+                                if req_unit in REFUGE_UNITS or req_unit.replace("A-","") in {"705","1205"}:
+                                    st.error(f"🚫 Unit {req_unit} is a REFUGE unit and can never be unlocked.")
+                                elif req_unit in storage["sold_units"]:
+                                    st.error(f"🚫 Unit {req_unit} is already SOLD. Request not sent.")
+                                elif req_unit in pending_units:
+                                    st.warning(f"⏳ Request for {req_unit} is already pending approval.")
+                                elif req_unit in storage["approved_units"].get(my_cabin, []):
+                                    st.info(f"✅ {req_unit} is already approved for your cabin.")
+                                else:
+                                    storage["pending_requests"][my_cabin].append({"unit": req_unit, "cabin": my_cabin})
+                                    storage["unblock_counts"][my_cabin] = chances_used + 1
+                                    storage["activity_log"].append({
+                                        "Time":   datetime.datetime.now(IST).strftime("%H:%M:%S"),
+                                        "Action": "Unblock Request",
+                                        "By":     f"Cabin {my_cabin}",
+                                        "Detail": f"Unit {req_unit} requested",
+                                    })
+                                    st.toast(f"✅ Request for {req_unit} sent to Admin!")
+                                    st.rerun()
                     else:
                         st.error("Please enter a Unit ID.")
             else:
@@ -896,7 +941,8 @@ else:
                             st.subheader("Release Confirmation")
                             st.warning(
                                 "This will mark the unit as **Released** — visible to all cabins "
-                                "but locked for selection until admin approves a request."
+                                "but locked for selection until admin approves a request.  \n"
+                                "⚠️ The customer will be **removed from all dashboards**."
                             )
                             cr_name = st.text_input("Sales Person Name (required):", key="cr_sales_name")
                             cr_reason = st.text_area("Reason for Release (required):", key="cr_reason",
@@ -907,7 +953,7 @@ else:
                                 elif not cr_reason.strip():
                                     st.error("❌ Reason for release is required.")
                                 else:
-                                    # Mark this specific unit as released
+                                    # ── Mark unit as released ─────────────────────────
                                     storage.setdefault("released_units", {})[search_id] = {
                                         "unit":        search_id,
                                         "sales_name":  cr_name.strip(),
@@ -916,16 +962,45 @@ else:
                                         "customer":    cust_name,
                                         "time":        datetime.datetime.now(IST).strftime("%H:%M:%S"),
                                     }
+
+                                    # ── Remove client from ALL dashboards ─────────────
+                                    # 1. Free the cabin
+                                    reset_cabin(my_cabin)
+
+                                    # 2. Remove from waiting list (in case somehow still there)
+                                    storage["waiting_customers"] = [
+                                        c for c in storage["waiting_customers"]
+                                        if str(c).upper() != str(cust_name).upper()
+                                    ]
+
+                                    # 3. Remove from visited customers
+                                    storage["visited_customers"].discard(cust_name)
+                                    storage["visited_customers"].discard(str(cust_name).upper())
+
+                                    # 4. Remove from opted_out if present
+                                    storage["opted_out"] = [
+                                        c for c in storage.get("opted_out", [])
+                                        if str(c).upper() != str(cust_name).upper()
+                                    ]
+
                                     storage["activity_log"].append({
                                         "Time":   datetime.datetime.now(IST).strftime("%H:%M:%S"),
-                                        "Action": "Unit Released",
+                                        "Action": "Unit Released — Client Removed",
                                         "By":     cr_name.strip(),
-                                        "Detail": f"Unit {search_id} released from Cabin {my_cabin}. Reason: {cr_reason.strip()}",
+                                        "Detail": (
+                                            f"Unit {search_id} released from Cabin {my_cabin}. "
+                                            f"Client '{cust_name}' removed from all dashboards. "
+                                            f"Reason: {cr_reason.strip()}"
+                                        ),
                                     })
+
                                     st.session_state.search_id_input = ""
-                                    # Broadcast so all other cabin views auto-refresh
+                                    # Broadcast so all cabins & manager auto-refresh
                                     storage["event_counter"] = storage.get("event_counter", 0) + 1
-                                    st.success(f"Unit {search_id} released. Now visible to all cabins (locked until admin approves).")
+                                    st.success(
+                                        f"✅ Unit {search_id} released. "
+                                        f"Client **{cust_name}** removed from all dashboards."
+                                    )
                                     st.rerun()
 
     # ────────────────────────────────────────────────────────────────────────
