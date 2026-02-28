@@ -287,8 +287,6 @@ else:
 
             # 3. Status Display
             st.success(f"👤 **Serving:** {cust_name} | 🎟️ **Token:** {token_no}")
-            if assigned_unit_from_sheet:
-                st.info(f"📍 **Pre-assigned Unit:** {assigned_unit_from_sheet} (Automatically Unlocked)")
 
             # 4. Inventory Grid with Logic for "Auto-Unblock"
             with st.expander("📁 Inventory Selection Grid", expanded=(search_id == "")):
