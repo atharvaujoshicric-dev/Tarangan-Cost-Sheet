@@ -141,7 +141,7 @@ def create_pdf(unit_id, floor, carpet, costs, cust_name, date_str, use_parking):
         
         pdf.ln(2); pdf.set_font("Arial", 'B', 8); pdf.cell(0, 5, "TERMS & CONDITIONS:", ln=True); pdf.set_font("Arial", '', 6.0)
         tc_lines = [
-            "1. Advocate charges will be Rs. 15,000/-.",
+            "1. Advocate charges will be Rs. 15,000/-, at the time of agreement.",
             "2. Agreement to be executed & registered within 15 days from the date of booking.",
             "3. The total cost mentioned here is all inclusive of GST, Registration, Stamp Duty.",
             "4. GST, Stamp Duty, Registration and all applicable government charges are as per the current rates, and in future may change as per government notification which would be borne by the customer.",
@@ -155,7 +155,8 @@ def create_pdf(unit_id, floor, carpet, costs, cust_name, date_str, use_parking):
             "12. The information on this paper is provided in good faith and does not constitute part of the contract.",
             "13. Government taxes will be applicable at actual. Also, any other taxes not mentioned herein if levied later would be payable at actuals by the purchaser.",
             "14. Documents required: PAN Card, Adhar Card, Photocopy.",
-            "15. If an external bank is opted for loan processing, an additional charge of Rs. 25,000/- shall be applicable and payable by the purchaser."
+            "15. If an external bank is opted for loan processing, an additional charge of Rs. 25,000/- shall be applicable and payable by the purchaser.",
+            "16. The Developer reserves the right to modify, amend or revise the above Terms and Conditions at its sole discretion, subject to applicable Laws and Regulations."
         ]
         for line in tc_lines: pdf.multi_cell(0, 3.2, line)
         
@@ -309,7 +310,6 @@ else:
                 else:
                     st.write(f"**Cabin {b}:** 🟢 Free")
                     
-    # --- SALES DASHBOARD ---
     # --- SALES DASHBOARD ---
     elif st.session_state.role == "Sales":
         # 1. Initialize variables
@@ -468,6 +468,21 @@ else:
                                         "Sales Person": s_name,
                                         "Timestamp": ist_now.strftime("%H:%M:%S")
                                     })
+
+                                    # --- 2. NEW CLEANUP LOGIC: FREE THE ROOM ---
+                                    # Clear the occupant from the cabin
+                                    storage["booths"][my_cabin] = None
+                                    
+                                    # Reset the cabin's unblock requests and approved units for the next customer
+                                    storage["approved_units"][my_cabin] = []
+                                    storage["unblock_counts"][my_cabin] = 0
+                                    
+                                    # Clear the search selection so the screen resets
+                                    st.session_state.search_id_input = ""
+                                    
+                                    # --- 3. PROCEED TO DOWNLOAD & SUCCESS ---
+                                    st.success(f"Unit {search_id} Booked! Cabin {my_cabin} is now FREE.")
+                                    st.balloons() # Optional celebratory effect!
                     
                                     # 3. Send Email
                                     email_sent = send_email(
