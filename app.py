@@ -249,79 +249,79 @@ else:
                             st.rerun()
 
     # --- SALES DASHBOARD ---
-            elif st.session_state.role == "Sales":
-                my_cabin = st.selectbox("Your Assigned Cabin:", list("ABCDEFGH"))
-                current_cust = storage["booths"].get(my_cabin)
-            
-            if not current_cust:
-                st.warning("Waiting for Manager to assign a customer to this cabin...")
-            else:
-                st.header(f"Serving: {current_cust}")
-                inv = load_inventory()
+                elif st.session_state.role == "Sales":
+                    my_cabin = st.selectbox("Your Assigned Cabin:", list("ABCDEFGH"))
+                    current_cust = storage["booths"].get(my_cabin)
                 
-                st.subheader("🏢 Unit Selection")
-                cols = st.columns(6)
-                
-                for i, row in inv.iterrows():
-                    uid = str(row['ID']).strip()
-                    # 1. Check if it's a Refuge Floor
-                    if uid in ["A-705", "A-1205"]:
-                        cols[i%6].button(f"🚫 {uid}\nRefuge", disabled=True, key=f"btn_{uid}")
-                        continue
+                if not current_cust:
+                    st.warning("Waiting for Manager to assign a customer to this cabin...")
+                else:
+                    st.header(f"Serving: {current_cust}")
+                    inv = load_inventory()
                     
-                    # 2. Determine Status
-                    is_sold = uid in storage["sold_units"] or (str(row['Token Number']).strip() != "" and str(row['Token Number']) != "nan")
-                    is_open = (row['Customer Allotted'] == "" or pd.isna(row['Customer Allotted']))
-                    is_approved = uid in storage["approved_units"].get(my_cabin, [])
-                    is_busy = uid in storage["in_process_units"] and storage["in_process_units"][uid] != my_cabin
-        
-                    # 3. UI Logic
-                    if is_sold:
-                        cols[i%6].button(f"⛔ {uid}\nSOLD", disabled=True, key=f"btn_{uid}")
-                    elif is_busy:
-                        cols[i%6].button(f"⏳ {uid}\nBUSY", disabled=True, key=f"btn_{uid}")
-                    elif is_open or is_approved:
-                        # This unit is available to click
-                        if cols[i%6].button(f"✅ {uid}\nSelect", key=f"btn_{uid}"):
-                            st.session_state.search_id_input = uid
-                            storage["in_process_units"][uid] = my_cabin
-                            st.rerun()
-                    else:
-                        # Locked - requires Admin request
-                        if cols[i%6].button(f"🔒 {uid}\nLocked", key=f"btn_{uid}"):
-                            storage["pending_requests"][my_cabin] = uid
-                            st.toast(f"Requesting unlock for {uid}")
-        
-                    # COST SHEET
-                    search_id = st.session_state.search_id_input
-                    if search_id:
-                        match = inventory[inventory['ID'].astype(str).str.upper() == search_id]
-                        if not match.empty:
-                            row = match.iloc[0]
-                            # Simple display logic for brevity
-                            st.info(f"Unit {search_id} Selected. Agreement: {row.get('Agreement Value')}")
-                            
-                            col_act1, col_act2 = st.columns(2)
-                            with col_act1:
-                                if st.button("✅ Finalize & Book"):
-                                    # Logic for Google Sheet Swap would go here
-                                    storage["sold_units"].add(search_id)
-                                    if search_id in storage["in_process_units"]: del storage["in_process_units"][search_id]
-                                    storage["booths"][my_cabin] = None
-                                    storage["approved_units"][my_cabin] = []
-                                    st.session_state.search_id_input = ""
-                                    st.success("Booked!"); st.rerun()
-        
-                            with col_act2:
-                                if st.button("❌ Close / Release"):
-                                    # RELEASE LOGIC: Unlock for others, but re-lock for this salesperson
-                                    if search_id in storage["in_process_units"]:
-                                        del storage["in_process_units"][search_id]
-                                    if search_id in storage["approved_units"][my_cabin]:
-                                        storage["approved_units"][my_cabin].remove(search_id)
-                                    
-                                    st.session_state.search_id_input = ""
-                                    st.rerun()
+                    st.subheader("🏢 Unit Selection")
+                    cols = st.columns(6)
+                    
+                    for i, row in inv.iterrows():
+                        uid = str(row['ID']).strip()
+                        # 1. Check if it's a Refuge Floor
+                        if uid in ["A-705", "A-1205"]:
+                            cols[i%6].button(f"🚫 {uid}\nRefuge", disabled=True, key=f"btn_{uid}")
+                            continue
+                        
+                        # 2. Determine Status
+                        is_sold = uid in storage["sold_units"] or (str(row['Token Number']).strip() != "" and str(row['Token Number']) != "nan")
+                        is_open = (row['Customer Allotted'] == "" or pd.isna(row['Customer Allotted']))
+                        is_approved = uid in storage["approved_units"].get(my_cabin, [])
+                        is_busy = uid in storage["in_process_units"] and storage["in_process_units"][uid] != my_cabin
+            
+                        # 3. UI Logic
+                        if is_sold:
+                            cols[i%6].button(f"⛔ {uid}\nSOLD", disabled=True, key=f"btn_{uid}")
+                        elif is_busy:
+                            cols[i%6].button(f"⏳ {uid}\nBUSY", disabled=True, key=f"btn_{uid}")
+                        elif is_open or is_approved:
+                            # This unit is available to click
+                            if cols[i%6].button(f"✅ {uid}\nSelect", key=f"btn_{uid}"):
+                                st.session_state.search_id_input = uid
+                                storage["in_process_units"][uid] = my_cabin
+                                st.rerun()
+                        else:
+                            # Locked - requires Admin request
+                            if cols[i%6].button(f"🔒 {uid}\nLocked", key=f"btn_{uid}"):
+                                storage["pending_requests"][my_cabin] = uid
+                                st.toast(f"Requesting unlock for {uid}")
+            
+                        # COST SHEET
+                        search_id = st.session_state.search_id_input
+                        if search_id:
+                            match = inventory[inventory['ID'].astype(str).str.upper() == search_id]
+                            if not match.empty:
+                                row = match.iloc[0]
+                                # Simple display logic for brevity
+                                st.info(f"Unit {search_id} Selected. Agreement: {row.get('Agreement Value')}")
+                                
+                                col_act1, col_act2 = st.columns(2)
+                                with col_act1:
+                                    if st.button("✅ Finalize & Book"):
+                                        # Logic for Google Sheet Swap would go here
+                                        storage["sold_units"].add(search_id)
+                                        if search_id in storage["in_process_units"]: del storage["in_process_units"][search_id]
+                                        storage["booths"][my_cabin] = None
+                                        storage["approved_units"][my_cabin] = []
+                                        st.session_state.search_id_input = ""
+                                        st.success("Booked!"); st.rerun()
+            
+                                with col_act2:
+                                    if st.button("❌ Close / Release"):
+                                        # RELEASE LOGIC: Unlock for others, but re-lock for this salesperson
+                                        if search_id in storage["in_process_units"]:
+                                            del storage["in_process_units"][search_id]
+                                        if search_id in storage["approved_units"][my_cabin]:
+                                            storage["approved_units"][my_cabin].remove(search_id)
+                                        
+                                        st.session_state.search_id_input = ""
+                                        st.rerun()
 
     # --- ADMIN DASHBOARD ---
             elif st.session_state.role == "Tarangan":
