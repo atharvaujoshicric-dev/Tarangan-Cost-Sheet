@@ -254,7 +254,8 @@ else:
                         st.markdown("---")
                 else:
                     st.write(f"**Cabin {b}:** 🟢 Free")
-    # --- SALES DASHBOARD ---elif st.session_state.role == "Sales":
+    # --- SALES DASHBOARD ---
+    elif st.session_state.role == "Sales":
         # 1. Initialize variables
         if "search_id_input" not in st.session_state:
             st.session_state.search_id_input = ""
