@@ -487,50 +487,53 @@ else:
                 st.info("No activity recorded.")
 
         with t3:
-            # --- ADMIN / MANAGER DASHBOARD ---
-            if st.session_state.role in ["Admin"]:
-                st.title("🛡️ Admin Control Panel")
-                
-                # Section: Handle Sales Requests
-                st.subheader("🔑 Pending Unit Unblock Requests")
-                
-                pending = storage.get("pending_requests", {})
-                
-                if not pending:
-                    st.info("No pending unblock requests from Sales cabins.")
-                else:
-                    # Create a table/list of requests
-                    for cabin, requested_unit in list(pending.items()):
-                        col1, col2, col3 = st.columns([2, 2, 2])
+            st.subheader("🔑 Inventory Access Control")
+            
+            # --- PART A: PENDING REQUESTS ---
+            st.markdown("### Pending Requests")
+            pending = storage.get("pending_requests", {})
+            
+            if not pending:
+                st.info("No pending unblock requests.")
+            else:
+                for cabin, requested_unit in list(pending.items()):
+                    c1, c2, c3 = st.columns([1, 1, 1])
+                    c1.write(f"**Cabin {cabin}**")
+                    c2.warning(f"Unit: {requested_unit}")
+                    if c3.button(f"✅ Approve {requested_unit}", key=f"app_{cabin}_{requested_unit}"):
+                        if cabin not in storage["approved_units"]:
+                            storage["approved_units"][cabin] = []
                         
-                        with col1:
-                            st.write(f"**Cabin {cabin}**")
-                        with col2:
-                            st.warning(f"Requesting: **{requested_unit}**")
-                        with col3:
-                            if st.button(f"✅ Approve {requested_unit}", key=f"app_{cabin}"):
-                                # 1. Add to approved list for that cabin
-                                if "approved_units" not in storage:
-                                    storage["approved_units"] = {}
-                                if cabin not in storage["approved_units"]:
-                                    storage["approved_units"][cabin] = []
-                                    
-                                storage["approved_units"][cabin].append(requested_unit)
-                                
-                                # 2. Increment the 'chances used' counter
-                                if "unblock_counts" not in storage:
-                                    storage["unblock_counts"] = {}
-                                storage["unblock_counts"][cabin] = storage["unblock_counts"].get(cabin, 0) + 1
-                                
-                                # 3. Remove from pending
-                                del storage["pending_requests"][cabin]
-                                
-                                st.success(f"Unit {requested_unit} unlocked for Cabin {cabin}!")
-                                st.rerun()
-        
-                st.divider()
-                # (Rest of your Manager/Admin logic for assigning booths follows here...)
-            pass
+                        # Add to approved and increment count
+                        if requested_unit not in storage["approved_units"][cabin]:
+                            storage["approved_units"][cabin].append(requested_unit)
+                            storage["unblock_counts"][cabin] = storage["unblock_counts"].get(cabin, 0) + 1
+                        
+                        # Remove from pending
+                        del storage["pending_requests"][cabin]
+                        st.success(f"Approved {requested_unit} for {cabin}")
+                        st.rerun()
+
+            st.divider()
+
+            # --- PART B: CURRENTLY APPROVED (REVOKE ACCESS) ---
+            st.markdown("### Currently Unlocked Units")
+            has_approved = False
+            for cabin, units in storage.get("approved_units", {}).items():
+                for unit in units:
+                    has_approved = True
+                    ca, cb, cc = st.columns([1, 1, 1])
+                    ca.write(f"**Cabin {cabin}**")
+                    cb.write(f"Unit: {unit}")
+                    if cc.button(f"🚫 Revoke {unit}", key=f"rev_{cabin}_{unit}"):
+                        storage["approved_units"][cabin].remove(unit)
+                        # Optional: Decrement count if you want to give the salesperson their "chance" back
+                        # storage["unblock_counts"][cabin] = max(0, storage["unblock_counts"][cabin] - 1)
+                        st.error(f"Access Revoked for {unit}")
+                        st.rerun()
+            
+            if not has_approved:
+                st.write("No units are currently manually unlocked.")
 
         with t4:
             st.subheader("System Reset")
