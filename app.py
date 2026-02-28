@@ -294,6 +294,7 @@ else:
                     st.write(f"**Cabin {b}:** 🟢 Free")
                     
     # --- SALES DASHBOARD ---
+    # --- SALES DASHBOARD ---
     elif st.session_state.role == "Sales":
         # 1. Initialize variables
         if "search_id_input" not in st.session_state:
@@ -306,59 +307,67 @@ else:
         
         st.title("🏙️ Stage 3: Sales Portal")
         if st.sidebar.button("🔄 Global Refresh"): st.rerun()
+
         if not cust_name:
-            st.warning(f"Cabin {my_cabin} is currently empty. Waiting for Manager...")
+            st.warning(f"Cabin {my_cabin} is currently empty. Please wait for Manager assignment.")
         else:
-            # --- 2. MASTER LOOKUP: FIND TOKEN & ASSIGNED ID ---
+            # 2. Status Header & Token Lookup
             inventory = load_data()
             assigned_unit_from_sheet = ""
             token_no = "N/A"
             
-            # Search the Google Sheet for this Customer's Name
-            if 'Customer Allotted' in inventory.columns:
-                # We use .strip() and .upper() to ensure a perfect match
-                match = inventory[inventory['Customer Allotted'].astype(str).str.upper() == str(cust_name).upper()]
-                
+            if 'Customer Name' in inventory.columns:
+                match = inventory[inventory['Customer Name'].astype(str).str.upper() == str(cust_name).upper()]
                 if not match.empty:
                     assigned_unit_from_sheet = str(match.iloc[0].get('ID', '')).upper()
-                    token_no = match.iloc[0].get('Token Number', 'N/A')
+                    token_no = match.iloc[0].get('Token No', 'N/A')
 
-            # 3. Status Display
-            st.success(f"👤 **Serving:** {cust_name} | 🎟️ **Token:** {token_no}")
+            st.success(f"👤 Serving: **{cust_name}** | 🎟️ Token: **{token_no}**")
 
-            # 4. Inventory Grid with Logic for "Auto-Unblock"
-            with st.expander("📁 Inventory Selection Grid", expanded=(search_id == "")):
+            # --- 3. THE MISSING: REQUEST UNBLOCK UI ---
+            st.write("---")
+            st.subheader("🔑 Request Inventory Unblock")
+            chances_used = storage.get("unblock_counts", {}).get(my_cabin, 0)
+            
+            if chances_used < 2:
+                c_req, c_send = st.columns([3, 1])
+                req_unit = c_req.text_input("Enter Unit ID (e.g., 1503):", key="manual_req").strip().upper()
+                if c_send.button("Send Request", use_container_width=True):
+                    if req_unit:
+                        storage.setdefault("pending_requests", {})[my_cabin] = req_unit
+                        st.toast(f"Request for {req_unit} sent to Admin!")
+                    else:
+                        st.error("Please enter an ID.")
+            else:
+                st.error("🚫 Maximum (2) unblock requests used for this customer.")
+
+            st.write("---")
+
+            # --- 4. INVENTORY GRID WITH REFUGE LOGIC ---
+            st.subheader("🏢 Unit Inventory")
+            with st.expander("📁 View Inventory Grid", expanded=(search_id == "")):
                 grid_cols = st.columns(6)
                 for idx, row_data in inventory.iterrows():
                     uid = str(row_data['ID']).upper().strip()
                     
-                    # --- REFUGE UNIT LOGIC ---
-                    if uid in ["A-705", "A-1205"]:
+                    # REFUGE LOGIC
+                    if uid in ["705", "1205"]:
                         btn_label = "🏥 REFUGE"
                         is_disabled = True
                     else:
-                        # LOGIC: A unit is clickable IF:
-                        # A) It matches the ID from Google Sheet
-                        # B) It was manually approved by Admin
-                        # C) It is the one currently being viewed
                         approved_list = storage.get("approved_units", {}).get(my_cabin, [])
                         is_unlocked = (uid == assigned_unit_from_sheet) or (uid in approved_list) or (uid == search_id)
                         is_sold = uid in storage.get("sold_units", set())
+                        
+                        if is_sold and uid != search_id:
+                            btn_label, is_disabled = "⛔ SOLD", True
+                        elif is_unlocked:
+                            prefix = "🟢" if uid == assigned_unit_from_sheet else "🟡"
+                            btn_label, is_disabled = f"{prefix} {uid}", False
+                        else:
+                            btn_label, is_disabled = f"🔒 {uid}", True
                     
-                    # UI Formatting
-                    if is_sold and uid != search_id:
-                        btn_label = f"⛔ SOLD"
-                        is_disabled = True
-                    elif is_unlocked:
-                        # Special color for the pre-assigned ID
-                        prefix = "🟢" if uid == assigned_unit_from_sheet else "🟡"
-                        btn_label = f"{prefix} {uid}"
-                        is_disabled = False
-                    else:
-                        btn_label = f"🔒 {uid}"
-                        is_disabled = True
-                    
-                    if grid_cols[idx % 6].button(btn_label, key=f"btn_{uid}", disabled=is_disabled):
+                    if grid_cols[idx % 6].button(btn_label, key=f"btn_{uid}", disabled=is_disabled, use_container_width=True):
                         st.session_state.search_id_input = uid
                         st.rerun()
             # 5. THE COST SHEET (Triggered after selection)
