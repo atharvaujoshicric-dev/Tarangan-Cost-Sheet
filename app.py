@@ -43,12 +43,38 @@ def load_inventory():
     return df
 
 @st.cache_data(ttl=5)
+@st.cache_data(ttl=5)
 def load_customers():
-    df = pd.read_csv(CUST_URL)
-    df.columns = df.columns.str.strip()
-    if "Customer Alloted" in df.columns:
-        return df["Customer Allotted"].dropna().tolist()
-    return []
+    try:
+        df = load_inventory()
+
+        if "Customer Allotted" in df.columns:
+            customers = (
+                df["Customer Allotted"]
+                .dropna()
+                .astype(str)
+                .str.strip()
+            )
+
+            # Remove empty & nan
+            customers = customers[
+                (customers != "") &
+                (customers.str.lower() != "nan")
+            ]
+
+            # Remove duplicates & sort
+            customers = sorted(customers.unique().tolist())
+
+            return customers
+
+        else:
+            st.error("Column 'Customer Allotted' not found in Inventory List.")
+            return []
+
+    except Exception as e:
+        st.error(f"Error loading customers: {e}")
+        return []
+
 
 # ================== APP CONFIG ==================
 
