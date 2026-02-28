@@ -325,16 +325,23 @@ else:
             st.success(f"👤 Serving: **{cust_name}** | 🎟️ Token: **{token_no}**")
 
             # --- 3. THE MISSING: REQUEST UNBLOCK UI ---
-            st.subheader("Inventory Management")
-            if storage["sold_units"]:
-                unit_to_unblock = st.selectbox("Select Sold Unit to Restore:", sorted(list(storage["sold_units"])))
-                if st.button("🔓 Restore Unit to Inventory"):
-                    storage["sold_units"].remove(unit_to_unblock)
-                    log_activity(st.session_state.user_id, "UNBLOCK", f"Admin restored unit {unit_to_unblock}")
-                    st.success(f"Unit {unit_to_unblock} is now available for sale.")
-                    st.rerun()
+            st.write("---")
+            st.subheader("🔑 Request Inventory Unblock")
+            chances_used = storage.get("unblock_counts", {}).get(my_cabin, 0)
+            
+            if chances_used < 2:
+                c_req, c_send = st.columns([3, 1])
+                req_unit = c_req.text_input("Enter Unit ID (e.g., 1503):", key="manual_req").strip().upper()
+                if c_send.button("Send Request", use_container_width=True):
+                    if req_unit:
+                        storage.setdefault("pending_requests", {})[my_cabin] = req_unit
+                        st.toast(f"Request for {req_unit} sent to Admin!")
+                    else:
+                        st.error("Please enter an ID.")
             else:
-                st.info("No units are currently marked as SOLD.")
+                st.error("🚫 Maximum (2) unblock requests used for this customer.")
+
+            st.write("---")
 
             # --- 4. INVENTORY GRID WITH REFUGE LOGIC ---
             st.subheader("🏢 Unit Inventory")
