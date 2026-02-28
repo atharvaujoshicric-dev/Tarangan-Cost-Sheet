@@ -451,11 +451,22 @@ else:
                                     # 2. Update Storage
                                     storage["sold_units"].add(search_id)
                                     storage["download_history"].append({
+                                        "Date": ist_now.strftime("%d/%m/%Y"),
                                         "Unit No": search_id, 
+                                        "Floor": row.get('Floor','N/A'),
+                                        "Carpet (sqft)": row.get('CARPET','N/A'),
                                         "Customer": cust_name, 
+                                        "Agreement Value": res['Final Agreement'],
+                                        "Stamp Duty": res['Stamp Duty'],
+                                        "SD %": res['SD_Pct'],
+                                        "GST": res['GST'],
+                                        "GST %": res['GST_Pct'],
+                                        "Registration": res['Registration'],
                                         "Total Package": res['Total'], 
+                                        "Discount Given": (d_val + p_val),
+                                        "Parking Included": "Yes" if use_p else "No",
                                         "Sales Person": s_name,
-                                        "Timestamp": ist_now.strftime("%Y-%m-%d %H:%M")
+                                        "Timestamp": ist_now.strftime("%H:%M:%S")
                                     })
                     
                                     # 3. Send Email
