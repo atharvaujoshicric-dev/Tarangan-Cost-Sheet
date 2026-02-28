@@ -187,7 +187,7 @@ else:
 
     # --- GRE DASHBOARD ---
     if st.session_state.role == "GRE":
-    st.title("📝 GRE: Guest Relations")
+        st.title("📝 GRE: Guest Relations")
     
     # 1. Add New Customer
     with st.expander("➕ Add New Entry", expanded=True):
