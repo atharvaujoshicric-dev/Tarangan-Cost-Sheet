@@ -186,6 +186,36 @@ else:
                 storage["waiting_customers"].remove(cust)
                 st.rerun()
 
+    # ======================================================
+    # MANAGER DASHBOARD  ✅ FIXED
+    # ======================================================
+    elif role == "Manager":
+        st.title("👔 Manager Assignment")
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            if storage["waiting_customers"]:
+                cust = st.selectbox("Select Customer", storage["waiting_customers"])
+                free = [k for k,v in storage["booths"].items() if v is None]
+                if free:
+                    cabin = st.selectbox("Assign Cabin", free)
+                    if st.button("Assign"):
+                        storage["booths"][cabin] = cust
+                        storage["waiting_customers"].remove(cust)
+                        st.success("Assigned")
+                        st.rerun()
+
+        with col2:
+            for b, c in storage["booths"].items():
+                if c:
+                    st.write(f"Cabin {b}: {c}")
+                    if st.button(f"Clear {b}", key=f"clr_{b}"):
+                        reset_cabin(b)
+                        st.rerun()
+                else:
+                    st.write(f"Cabin {b}: FREE")
+
     # ================= SALES =================
     elif st.session_state.role == "Sales":
 
