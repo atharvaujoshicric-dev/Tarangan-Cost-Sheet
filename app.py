@@ -427,6 +427,8 @@ else:
                     """, unsafe_allow_html=True)
 
                     # Action Buttons
+                    st.write("") # Spacing
+                    col_act1, col_act2 = st.columns(2)
                     with col_act1:
                         # Use a popover to keep the UI clean
                         with st.popover("✅ Finalize & Book"):
