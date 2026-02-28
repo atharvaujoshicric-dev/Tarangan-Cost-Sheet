@@ -428,51 +428,59 @@ else:
 
                     # Action Buttons
                     with col_act1:
-                        if st.button("✅ Finalize & Book"):
-                            if not sales_person_name:
-                                st.error("Please enter the Sales Person Name before finalizing.")
-                            else:
-                                # 1. Generate the PDF data
-                                pdf_bytes = create_pdf(
-                                    search_id, 
-                                    row.get('Floor','N/A'), 
-                                    row.get('CARPET','N/A'), 
-                                    res, 
-                                    cust_name, 
-                                    ist_now.strftime("%d/%m/%Y"), 
-                                    use_p
-                                )
+                        # Use a popover to keep the UI clean
+                        with st.popover("✅ Finalize & Book"):
+                            st.subheader("Final Confirmation")
+                            s_name = st.text_input("Enter Sales Person Name:", key="final_s_name")
+                            
+                            if st.button("Confirm & Generate Cost Sheet", use_container_width=True):
+                                if s_name:
+                                    # 1. Generate PDF
+                                    pdf_bytes = create_pdf(
+                                        search_id, 
+                                        row.get('Floor','N/A'), 
+                                        row.get('CARPET','N/A'), 
+                                        res, 
+                                        cust_name, 
+                                        ist_now.strftime("%d/%m/%Y"), 
+                                        use_p
+                                    )
                     
-                                # 2. Save to history with the actual name
-                                storage["sold_units"].add(search_id)
-                                storage["download_history"].append({
-                                    "Unit No": search_id, 
-                                    "Customer": cust_name, 
-                                    "Total Package": res['Total'], 
-                                    "Sales Person": sales_person_name,  # Updated this line
-                                    "Timestamp": ist_now.strftime("%Y-%m-%d %H:%M")
-                                })
+                                    # 2. Update Storage
+                                    storage["sold_units"].add(search_id)
+                                    storage["download_history"].append({
+                                        "Unit No": search_id, 
+                                        "Customer": cust_name, 
+                                        "Total Package": res['Total'], 
+                                        "Sales Person": s_name,
+                                        "Timestamp": ist_now.strftime("%Y-%m-%d %H:%M")
+                                    })
                     
-                                # 3. Success Message & Trigger Download
-                                st.success(f"Unit Booked by {sales_person_name}!")
-                                
-                                st.download_button(
-                                    label="📥 Download Cost Sheet",
-                                    data=pdf_bytes,
-                                    file_name=f"Cost_Sheet_{search_id}.pdf",
-                                    mime="application/pdf"
-                                )
+                                    # 3. Send Email
+                                    email_sent = send_email(
+                                        RECEIVER_EMAIL, 
+                                        pdf_bytes, 
+                                        f"Cost_Sheet_{search_id}.pdf", 
+                                        {"Unit No": search_id, "Customer Name": cust_name}
+                                    )
                     
-                                # 4. Email (Included the Sales Person name in the details)
-                                details = {
-                                    "Unit No": search_id, 
-                                    "Customer Name": cust_name,
-                                    "Sales Person": sales_person_name
-                                }
-                                send_email(RECEIVER_EMAIL, pdf_bytes, f"{search_id}.pdf", details)
-                            st.rerun()
+                                    # 4. Display Download Button
+                                    st.success(f"Finalized by {s_name}!")
+                                    if email_sent:
+                                        st.toast("Email sent to Admin!")
+                                    
+                                    st.download_button(
+                                        label="📥 Click here to Download PDF",
+                                        data=pdf_bytes,
+                                        file_name=f"Tarangan_{search_id}_{cust_name}.pdf",
+                                        mime="application/pdf",
+                                        use_container_width=True
+                                    )
+                                else:
+                                    st.error("Name is required to finalize the booking.")
+                    
                     with col_act2:
-                        if st.button("❌ Close / Release"):
+                        if st.button("❌ Close / Release", use_container_width=True):
                             st.session_state.search_id_input = ""
                             st.rerun()
 
