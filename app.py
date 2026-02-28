@@ -316,8 +316,8 @@ else:
             assigned_unit_from_sheet = ""
             token_no = "N/A"
             
-            if 'Customer Name' in inventory.columns:
-                match = inventory[inventory['Customer Name'].astype(str).str.upper() == str(cust_name).upper()]
+            if 'Customer Allotted' in inventory.columns:
+                match = inventory[inventory['Customer Allotted'].astype(str).str.upper() == str(cust_name).upper()]
                 if not match.empty:
                     assigned_unit_from_sheet = str(match.iloc[0].get('ID', '')).upper()
                     token_no = match.iloc[0].get('Token Number', 'N/A')
