@@ -105,17 +105,33 @@ def load_data():
 
 def create_pdf(unit_id, floor, carpet, costs, cust_name, date_str, use_parking):
     pdf = FPDF()
-    for copy_label in ["Customer's Copy", "Sales Copy"]:
+    copies = ["Customer's Copy", "Sales Copy"]
+    for copy_label in copies:
         pdf.add_page()
-        pdf.set_font("Arial", 'B', 14); pdf.cell(190, 10, "TARANGAN COST SHEET", ln=True, align='C')
-        pdf.set_font("Arial", '', 10); pdf.cell(190, 10, f"Date: {date_str} | {copy_label}", ln=True, align='R')
-        pdf.cell(190, 10, f"Customer Name: {cust_name}", ln=True)
+        pdf.set_font("Arial", 'I', 8); pdf.set_xy(10, 5); pdf.cell(0, 10, copy_label, ln=True, align='L')
+        try:
+            pdf.image("tarangan_logo.png", x=75, y=10, w=60)
+            pdf.set_y(42); pdf.set_font("Arial", 'B', 14); pdf.cell(190, 10, "COST SHEET", ln=True, align='C')
+        except:
+            pdf.set_y(20); pdf.set_font("Arial", 'B', 20); pdf.cell(190, 10, "TARANGAN", ln=True, align='C')
+            pdf.set_font("Arial", 'B', 14); pdf.cell(190, 10, "COST SHEET", ln=True, align='C')
+
+        pdf.set_font("Arial", '', 10); pdf.cell(190, 10, f"Date: {date_str}", ln=True, align='R')
+        pdf.set_font("Arial", 'B', 12); display_name = cust_name if cust_name.strip() else "____________________"
+        pdf.cell(190, 10, f"Customer Name: {display_name}", ln=True)
         pdf.cell(190, 10, f"Unit No: {unit_id} | Floor: {floor} | Carpet: {carpet} sqft", ln=True)
-        pdf.ln(5)
-        pdf.set_font("Arial", 'B', 11); pdf.cell(95, 10, "Description", border=1); pdf.cell(95, 10, "Amount (Rs.)", border=1, ln=True)
+        pdf.line(10, pdf.get_y(), 200, pdf.get_y()); pdf.ln(5)
+        
+        pdf.set_font("Arial", 'B', 11); pdf.cell(95, 10, "Description", border=1, align='C'); pdf.cell(95, 10, "Amount (Rs.)", border=1, ln=True, align='C')
         pdf.set_font("Arial", '', 11)
-        rows = [["Agreement Value", format_indian_currency(costs['Final Agreement'])], [f"Stamp Duty ({int(costs['SD_Pct'])}%)", format_indian_currency(costs['Stamp Duty'])], [f"GST ({int(costs['GST_Pct'])}%)", format_indian_currency(costs['GST'])], ["Registration", "30,000"]]
-        for r in rows: pdf.cell(95, 10, r[0], border=1); pdf.cell(95, 10, r[1], border=1, ln=True)
+        rows = [
+            ["Agreement Value", format_indian_currency(costs['Final Agreement'])],
+            [f"Stamp Duty ({int(costs['SD_Pct'])}%)", format_indian_currency(costs['Stamp Duty'])],
+            [f"GST ({int(costs['GST_Pct'])}%)", format_indian_currency(costs['GST'])],
+            ["Registration", format_indian_currency(costs['Registration'])]
+        ]
+        for r in rows:
+            pdf.cell(95, 10, r[0], border=1, align='C'); pdf.cell(95, 10, r[1], border=1, ln=True, align='C')
         pdf.set_font("Arial", 'B', 13); pdf.cell(95, 12, "ALL INCLUSIVE TOTAL", border=1, align='C'); pdf.cell(95, 12, format_indian_currency(costs['Total']), border=1, ln=True, align='C')
         
         try:
@@ -411,16 +427,49 @@ else:
                     """, unsafe_allow_html=True)
 
                     # Action Buttons
-                    col_act1, col_act2 = st.columns(2)
                     with col_act1:
                         if st.button("✅ Finalize & Book"):
-                            # Save to history and mark as sold
-                            storage["sold_units"].add(search_id)
-                            storage["download_history"].append({
-                                "Unit No": search_id, "Customer": cust_name, "Total Package": res['Total'], "Sales Person": st.session_state.role
-                            })
-                            st.success("Unit Booked!")
-                            st.session_state.search_id_input = ""
+                            if not sales_person_name:
+                                st.error("Please enter the Sales Person Name before finalizing.")
+                            else:
+                                # 1. Generate the PDF data
+                                pdf_bytes = create_pdf(
+                                    search_id, 
+                                    row.get('Floor','N/A'), 
+                                    row.get('CARPET','N/A'), 
+                                    res, 
+                                    cust_name, 
+                                    ist_now.strftime("%d/%m/%Y"), 
+                                    use_p
+                                )
+                    
+                                # 2. Save to history with the actual name
+                                storage["sold_units"].add(search_id)
+                                storage["download_history"].append({
+                                    "Unit No": search_id, 
+                                    "Customer": cust_name, 
+                                    "Total Package": res['Total'], 
+                                    "Sales Person": sales_person_name,  # Updated this line
+                                    "Timestamp": ist_now.strftime("%Y-%m-%d %H:%M")
+                                })
+                    
+                                # 3. Success Message & Trigger Download
+                                st.success(f"Unit Booked by {sales_person_name}!")
+                                
+                                st.download_button(
+                                    label="📥 Download Cost Sheet",
+                                    data=pdf_bytes,
+                                    file_name=f"Cost_Sheet_{search_id}.pdf",
+                                    mime="application/pdf"
+                                )
+                    
+                                # 4. Email (Included the Sales Person name in the details)
+                                details = {
+                                    "Unit No": search_id, 
+                                    "Customer Name": cust_name,
+                                    "Sales Person": sales_person_name
+                                }
+                                send_email(RECEIVER_EMAIL, pdf_bytes, f"{search_id}.pdf", details)
                             st.rerun()
                     with col_act2:
                         if st.button("❌ Close / Release"):
