@@ -393,6 +393,10 @@ else:
     # ────────────────────────────────────────────────────────────────────────
     if role == "GRE":
         st.title("📝 Stage 1: GRE Entry")
+        rc1, rc2 = st.columns([6, 1])
+        with rc2:
+            if st.button("🔄 Refresh", key="gre_refresh", use_container_width=True):
+                st.rerun()
         if st.sidebar.button("🔄 Global Refresh"):
             st.rerun()
 
@@ -452,6 +456,10 @@ else:
     # ────────────────────────────────────────────────────────────────────────
     elif role == "Manager":
         st.title("👔 Manager Assignment")
+        rc1, rc2 = st.columns([6, 1])
+        with rc2:
+            if st.button("🔄 Refresh", key="mgr_refresh", use_container_width=True):
+                st.rerun()
         if st.sidebar.button("🔄 Global Refresh"):
             st.rerun()
 
@@ -485,13 +493,17 @@ else:
                         storage["waiting_customers"].append(c)
                         reset_cabin(b)
                         st.rerun()
-                    if c2.button(f"🗑️ Delete {b}", key=f"del_{b}",
-                                 help="Removes customer from system"):
+                    if c2.button(f"🗑️ Remove {b}", key=f"del_{b}",
+                                 help="Unassigns customer — sends back to waiting list"):
+                        # Always move back to waiting list, never silently delete
+                        storage["waiting_customers"].append(c)
                         reset_cabin(b)
+                        st.info(f"{c} moved back to waiting list.")
                         st.rerun()
                     st.markdown("---")
                 else:
                     st.write(f"**Cabin {b}:** 🟢 Free")
+
 
     # ────────────────────────────────────────────────────────────────────────
     # SALES
@@ -501,6 +513,10 @@ else:
             st.session_state.search_id_input = ""
 
         st.title("🏙️ Stage 3: Sales Portal")
+        rc1, rc2 = st.columns([6, 1])
+        with rc2:
+            if st.button("🔄 Refresh", key="sales_refresh", use_container_width=True):
+                st.rerun()
         if st.sidebar.button("🔄 Global Refresh"):
             st.rerun()
 
@@ -826,6 +842,10 @@ else:
     # ────────────────────────────────────────────────────────────────────────
     elif role == "Tarangan":
         st.title("🛠️ Admin Master Control")
+        rc1, rc2 = st.columns([6, 1])
+        with rc2:
+            if st.button("🔄 Refresh", key="admin_refresh", use_container_width=True):
+                st.rerun()
         if st.sidebar.button("🔄 Global Refresh"):
             st.rerun()
 
