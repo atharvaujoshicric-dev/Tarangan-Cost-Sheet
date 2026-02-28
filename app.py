@@ -394,13 +394,30 @@ else:
                     
                     # Negotiation Inputs
                     c1, c2, c3 = st.columns(3)
+
                     with c1:
                         use_d = st.checkbox("Discount")
-                        d_val = st.number_input("Discount:", value=0, step=1000)
+                        # Max Package Discount: 2,50,000
+                        d_val = st.number_input("Package Discount:", 
+                                                min_value=0, 
+                                                max_value=250000, 
+                                                value=0, 
+                                                step=5000,
+                                                help="Maximum allowed package discount is 2,50,000")
+                    
                     with c2: 
                         use_p = st.checkbox("Include Parking")
-                        p_val = st.number_input("Park Disc:", value=0) if use_p else 0
-                    with c3: is_f = st.checkbox("Female Registry")
+                        # Max Parking Discount: 1,00,000
+                        p_val = st.number_input("Parking Discount:", 
+                                                min_value=0, 
+                                                max_value=100000, 
+                                                value=0, 
+                                                step=5000,
+                                                disabled=not use_p,
+                                                help="Maximum allowed parking discount is 1,00,000")
+                    
+                    with c3: 
+                        is_f = st.checkbox("Female Customer")
 
                     # Calculate Costs
                     res = calculate_negotiation(clean_numeric(row.get('Agreement Value', 0)), d_val, p_val, use_p, is_f)
