@@ -502,7 +502,7 @@ else:
     # ────────────────────────────────────────────────────────────────────────
     # MANAGER
     # ────────────────────────────────────────────────────────────────────────
-    elif role == "Manager":
+    lif role == "Manager":
         st.title("👔 Manager Assignment")
         rc1, rc2 = st.columns([6, 1])
         with rc2:
@@ -535,6 +535,32 @@ else:
             for b, c in storage["booths"].items():
                 if c:
                     st.markdown(f"**Cabin {b}:** `{c}`")
+                    # ── Inline name editor ────────────────────────────────
+                    with st.expander(f"✏️ Edit name — Cabin {b}", expanded=False):
+                        new_name = st.text_input(
+                            "New customer name:", value=c,
+                            key=f"edit_name_{b}"
+                        ).strip()
+                        if st.button("💾 Save Name", key=f"save_name_{b}", use_container_width=True):
+                            if new_name and new_name != c:
+                                # Update booth
+                                storage["booths"][b] = new_name
+                                # Keep waiting list consistent if old name was somehow still there
+                                storage["waiting_customers"] = [
+                                    new_name if str(x).upper() == str(c).upper() else x
+                                    for x in storage["waiting_customers"]
+                                ]
+                                storage["activity_log"].append({
+                                    "Time":   datetime.datetime.now(IST).strftime("%H:%M:%S"),
+                                    "Action": "Name Edited",
+                                    "By":     "Manager",
+                                    "Detail": f"Cabin {b}: '{c}' → '{new_name}'",
+                                })
+                                st.success(f"Updated to **{new_name}**")
+                                st.rerun()
+                            elif not new_name:
+                                st.error("Name cannot be empty.")
+
                     c1, c2 = st.columns(2)
                     if c1.button(f"🔄 Reassign {b}", key=f"re_{b}",
                                  help="Moves customer back to waiting list"):
@@ -543,7 +569,6 @@ else:
                         st.rerun()
                     if c2.button(f"🗑️ Remove {b}", key=f"del_{b}",
                                  help="Unassigns customer — sends back to waiting list"):
-                        # Always move back to waiting list, never silently delete
                         storage["waiting_customers"].append(c)
                         reset_cabin(b)
                         st.info(f"{c} moved back to waiting list.")
@@ -551,6 +576,7 @@ else:
                     st.markdown("---")
                 else:
                     st.write(f"**Cabin {b}:** 🟢 Free")
+
 
 
     # ────────────────────────────────────────────────────────────────────────
