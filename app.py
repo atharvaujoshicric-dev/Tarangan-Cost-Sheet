@@ -186,10 +186,18 @@ storage = get_global_storage()
 
 def reset_cabin(cabin):
     """Single source of truth for freeing a cabin — use this everywhere."""
-    storage["booths"][cabin]         = None
-    storage["approved_units"][cabin] = []
-    storage["unblock_counts"][cabin] = 0
-    storage["pending_requests"].pop(cabin, None)
+    storage["booths"][cabin]          = None
+    storage["approved_units"][cabin]  = []
+    storage["unblock_counts"][cabin]  = 0
+    storage["pending_requests"][cabin] = []   # always a list, never pop
+
+
+def assign_cabin(cabin, customer):
+    """Assign a customer to a cabin, resetting all per-cabin state cleanly."""
+    storage["booths"][cabin]          = customer
+    storage["approved_units"][cabin]  = []
+    storage["unblock_counts"][cabin]  = 0
+    storage["pending_requests"][cabin] = []
 
 
 # ---------------------------------------------------------------------------
@@ -510,7 +518,7 @@ else:
                 if b_avail:
                     sel_b = st.selectbox("Assign to Cabin:", b_avail)
                     if st.button("Confirm Assignment"):
-                        storage["booths"][sel_b] = sel_c
+                        assign_cabin(sel_b, sel_c)
                         storage["waiting_customers"].remove(sel_c)
                         st.success(f"Assigned {sel_c} to Cabin {sel_b}")
                         st.rerun()
@@ -672,41 +680,42 @@ else:
                             inv_ids = set(inventory['ID'].astype(str).str.upper().str.strip().tolist())
                             if req_unit not in inv_ids:
                                 st.error(f"❌ Unit {req_unit} not found in inventory. Check the ID and try again.")
-                            else:
-                                # pending_requests is: cabin -> list of {"unit": ..., "cabin": ...}
-                                if not isinstance(storage["pending_requests"].get(my_cabin), list):
-                                    storage["pending_requests"][my_cabin] = []
-                                pending_units = [p["unit"] for p in storage["pending_requests"][my_cabin]]
+                            # Ensure it's always a list (defensive)
+                            pr = storage["pending_requests"]
+                            if not isinstance(pr.get(my_cabin), list):
+                                pr[my_cabin] = []
+                            pending_units = [p["unit"] for p in pr[my_cabin]]
 
                                 # Hard-block refuge units
-                                if req_unit in REFUGE_UNITS or req_unit.replace("A-","") in {"705","1205"}:
-                                    st.error(f"🚫 Unit {req_unit} is a REFUGE unit and can never be unlocked.")
-                                elif req_unit in storage["sold_units"]:
-                                    st.error(f"🚫 Unit {req_unit} is already SOLD. Request not sent.")
-                                elif req_unit in pending_units:
-                                    st.warning(f"⏳ Request for {req_unit} is already pending approval.")
-                                elif req_unit in storage["approved_units"].get(my_cabin, []):
-                                    st.info(f"✅ {req_unit} is already approved for your cabin.")
-                                else:
-                                    storage["pending_requests"][my_cabin].append({"unit": req_unit, "cabin": my_cabin})
-                                    storage["unblock_counts"][my_cabin] = chances_used + 1
-                                    storage["activity_log"].append({
-                                        "Time":   datetime.datetime.now(IST).strftime("%H:%M:%S"),
-                                        "Action": "Unblock Request",
-                                        "By":     f"Cabin {my_cabin}",
-                                        "Detail": f"Unit {req_unit} requested",
-                                    })
-                                    st.toast(f"✅ Request for {req_unit} sent to Admin!")
-                                    st.rerun()
+                            if req_unit in REFUGE_UNITS or req_unit in {"705","1205"}:
+                                st.error(f"🚫 Unit {req_unit} is a REFUGE unit and can never be unlocked.")
+                            elif req_unit in storage["sold_units"]:
+                                st.error(f"🚫 Unit {req_unit} is already SOLD. Request not sent.")
+                            elif req_unit in pending_units:
+                                st.warning(f"⏳ Request for {req_unit} is already pending approval.")
+                            elif req_unit in storage["approved_units"].get(my_cabin, []):
+                                st.info(f"✅ {req_unit} is already approved for your cabin.")
+                            else:
+                                pr[my_cabin].append({"unit": req_unit, "cabin": my_cabin})
+                                storage["unblock_counts"][my_cabin] = storage["unblock_counts"].get(my_cabin, 0) + 1
+                                storage["activity_log"].append({
+                                    "Time":   datetime.datetime.now(IST).strftime("%H:%M:%S"),
+                                    "Action": "Unblock Request",
+                                    "By":     f"Cabin {my_cabin}",
+                                    "Detail": f"Unit {req_unit} requested",
+                                })
+                                st.toast(f"✅ Request for {req_unit} sent to Admin!")
+                                st.rerun()
                     else:
                         st.error("Please enter a Unit ID.")
             else:
                 st.error(f"🚫 Maximum ({MAX_REQUESTS}) unblock requests used for this customer.")
 
-            # Show pending & approved
-            if not isinstance(storage["pending_requests"].get(my_cabin), list):
-                storage["pending_requests"][my_cabin] = []
-            cabin_pending  = [p["unit"] for p in storage["pending_requests"].get(my_cabin, [])]
+            # Show pending & approved for this cabin
+            pr = storage["pending_requests"]
+            if not isinstance(pr.get(my_cabin), list):
+                pr[my_cabin] = []
+            cabin_pending  = [p["unit"] for p in pr.get(my_cabin, [])]
             cabin_approved = storage["approved_units"].get(my_cabin, [])
             if cabin_pending:
                 st.caption(f"⏳ Pending admin approval: {', '.join(cabin_pending)}")
@@ -1091,11 +1100,19 @@ else:
 
             any_pending = False
             for cabin, req_list in list(pending.items()):
-                # Normalise old string format to list
+                # Normalise any old string format to list
                 if isinstance(req_list, str):
                     req_list = [{"unit": req_list, "cabin": cabin}]
                     storage["pending_requests"][cabin] = req_list
+                elif not isinstance(req_list, list):
+                    storage["pending_requests"][cabin] = []
+                    continue
+                if not req_list:
+                    continue
                 for req in list(req_list):
+                    # Handle old string items inside the list
+                    if isinstance(req, str):
+                        req = {"unit": req, "cabin": cabin}
                     any_pending = True
                     requested_unit = req["unit"]
                     c1, c2, c3, c4 = st.columns([1, 1, 1, 1])
@@ -1105,21 +1122,24 @@ else:
                         storage["approved_units"].setdefault(cabin, [])
                         if requested_unit not in storage["approved_units"][cabin]:
                             storage["approved_units"][cabin].append(requested_unit)
-                        req_list.remove(req)
-                        if not req_list:
-                            storage["pending_requests"].pop(cabin, None)
+                        # Remove from pending list
+                        storage["pending_requests"][cabin] = [
+                            r for r in storage["pending_requests"][cabin]
+                            if (r["unit"] if isinstance(r, dict) else r) != requested_unit
+                        ]
                         storage["activity_log"].append({
                             "Time":   datetime.datetime.now(IST).strftime("%H:%M:%S"),
                             "Action": "Unblock Approved",
                             "By":     "Admin",
                             "Detail": f"Unit {requested_unit} for Cabin {cabin}",
                         })
-                        st.success(f"Approved {requested_unit} for Cabin {cabin}")
+                        st.success(f"✅ Approved {requested_unit} for Cabin {cabin}")
                         st.rerun()
                     if c4.button(f"❌ Reject", key=f"rej_{cabin}_{requested_unit}"):
-                        req_list.remove(req)
-                        if not req_list:
-                            storage["pending_requests"].pop(cabin, None)
+                        storage["pending_requests"][cabin] = [
+                            r for r in storage["pending_requests"][cabin]
+                            if (r["unit"] if isinstance(r, dict) else r) != requested_unit
+                        ]
                         st.warning(f"Rejected {requested_unit} for Cabin {cabin}")
                         st.rerun()
 
