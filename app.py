@@ -778,6 +778,7 @@ else:
                 grid_cols = st.columns(6)
                 for idx, row_data in inventory.iterrows():
                     uid = str(row_data['ID']).upper().strip()
+                    uid_numeric = re.sub(r'^A-?', '', uid)
 
                     uid_norm = uid.replace("A-", "").replace("A", "")
                     if uid in REFUGE_UNITS or uid_norm in {"705", "1205"}:
@@ -787,11 +788,14 @@ else:
                         approved_list  = storage["approved_units"].get(my_cabin, [])
                         is_unlocked    = (
                             uid == assigned_unit_from_sheet
+                            or uid_numeric == assigned_unit_from_sheet
                             or uid in approved_list
+                            or uid_numeric in approved_list
                             or uid == search_id
+                            or uid_numeric == search_id
                         )
-                        is_sold        = uid in storage["sold_units"]
-                        is_released    = uid in released_units   # specifically closed & released
+                        is_sold        = uid in storage["sold_units"] or uid_numeric in storage["sold_units"]
+                        is_released    = uid in released_units or uid_numeric in released_units
 
                         if is_sold and uid != search_id:
                             btn_label, is_disabled = "⛔ SOLD", True
