@@ -706,7 +706,7 @@ else:
                         if not valid:
                             st.error(f"❌ Invalid unit: {result}")
                         else:
-                            req_unit = result  # normalised numeric ID, e.g. "203"
+                            req_unit = result  # normalised numeric ID, e.g. "302"
 
                             # Step 2: refuge check — hard block
                             if req_unit in REFUGE_UNITS or req_unit in {"705", "1205"}:
