@@ -716,9 +716,6 @@ else:
                             elif req_unit in storage["sold_units"]:
                                 st.error(f"🚫 Unit {req_unit} is already SOLD. No request can be made.")
 
-                            # Step 4: exists in inventory sheet
-                            elif req_unit not in set(inventory["ID"].astype(str).str.upper().str.strip()):
-                                st.error(f"❌ Unit {req_unit} not found in inventory. Check the ID.")
 
                             else:
                                 # Ensure pending list is always a list
