@@ -1363,6 +1363,31 @@ else:
                                 f"Reason: *{rel_d.get('reason','')}*  \n"
                                 f"Original Cabin: **{rel_d.get('cabin','')}** | Customer: **{rel_d.get('customer','')}**"
                             )
+                        else:
+                            st.divider()
+                            st.markdown("#### 🔓 Admin: Mark Unit as Released")
+                            adm_rel_name   = st.text_input("Reason for release:", key="adm_rel_reason")
+                            if st.button("Mark as Released", key="adm_mark_released", use_container_width=True):
+                                if not adm_rel_name.strip():
+                                    st.error("Please enter a reason.")
+                                else:
+                                    storage.setdefault("released_units", {})[selected_unit_id] = {
+                                        "unit":       selected_unit_id,
+                                        "sales_name": "Admin",
+                                        "reason":     adm_rel_name.strip(),
+                                        "cabin":      "Admin",
+                                        "customer":   sel.get("Customer", ""),
+                                        "time":       datetime.datetime.now(IST).strftime("%H:%M:%S"),
+                                    }
+                                    storage["activity_log"].append({
+                                        "Time":   datetime.datetime.now(IST).strftime("%H:%M:%S"),
+                                        "Action": "Admin Marked Released",
+                                        "By":     "Admin",
+                                        "Detail": f"Unit {selected_unit_id} manually marked as Released. Reason: {adm_rel_name.strip()}",
+                                    })
+                                    storage["event_counter"] = storage.get("event_counter", 0) + 1
+                                    st.success(f"Unit {selected_unit_id} marked as Released.")
+                                    st.rerun()
 
                 # ── Released Units Log ─────────────────────────────────────
                 if rel_units:
