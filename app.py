@@ -1607,3 +1607,9 @@ else:
                         </div>
                     </div>
                     """, unsafe_allow_html=True)
+# ── Keep Display alive with 15-second internal rerun ─────────────
+        # Uses st.rerun() after sleep — does NOT reload the browser page,
+        # so session_state (login) is fully preserved.
+        import time as _time
+        _time.sleep(15)
+        st.rerun()
