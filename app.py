@@ -1448,8 +1448,6 @@ else:
     # DISPLAY — Live Unit Grid (public screen, auto-refreshes every 15s)
     # ────────────────────────────────────────────────────────────────────────
     elif role == "Display":
-        # No sidebar clutter — this screen is meant for a TV/projector
-        st.set_page_config(page_title="Tarangan Live", layout="wide")
 
         # ── 15-second auto-refresh via meta tag ──────────────────────────
         st.markdown(
@@ -1457,50 +1455,40 @@ else:
             unsafe_allow_html=True,
         )
 
-        # ── Booking Flash — show for 30 seconds after a new booking ──────
-        flash = storage.get("last_booking_flash")
         ist_now_disp = datetime.datetime.now(IST)
-        if flash and flash.get("ts"):
-            age = ist_now_disp.timestamp() - flash["ts"]
-            if age <= 30:   # show flash for 30 seconds
-                st.markdown(f"""
-                <div style="
-                    background: linear-gradient(135deg, #1a472a, #2d6a4f);
-                    border: 3px solid #52b788;
-                    border-radius: 16px;
-                    padding: 28px 36px;
-                    text-align: center;
-                    margin-bottom: 28px;
-                    box-shadow: 0 0 40px #52b78866;
-                    animation: pulse 1s infinite alternate;
-                ">
-                    <div style="font-size: 2.2em; font-weight: 900; color: #b7e4c7; letter-spacing: 2px;">
-                        🎉 UNIT BOOKED!
-                    </div>
-                    <div style="font-size: 3.2em; font-weight: 900; color: #ffffff; margin: 10px 0;">
-                        Unit {flash['unit']}
-                    </div>
-                    <div style="font-size: 1.8em; color: #d8f3dc; font-weight: 700;">
-                        {flash['customer']}
-                    </div>
-                    <div style="font-size: 1em; color: #95d5b2; margin-top: 8px;">
-                        Floor {flash['floor']} · Carpet {flash['carpet']} sqft · Booked at {flash['time']}
-                    </div>
+        flash        = storage.get("last_booking_flash")
+
+        # ── Booking Flash banner (shown for 30 s after a booking) ────────
+        if flash and flash.get("ts") and (ist_now_disp.timestamp() - flash["ts"]) <= 30:
+            st.markdown(f"""
+            <div style="
+                background:linear-gradient(135deg,#1a472a,#2d6a4f);
+                border:3px solid #52b788;border-radius:16px;
+                padding:28px 36px;text-align:center;margin-bottom:20px;
+                animation:glow 1.2s ease-in-out infinite alternate;
+            ">
+                <div style="font-size:2em;font-weight:900;color:#b7e4c7;letter-spacing:3px;">🎉 UNIT BOOKED!</div>
+                <div style="font-size:3.5em;font-weight:900;color:#ffffff;margin:8px 0;">
+                    Unit {flash['unit']}
                 </div>
-                <style>
-                @keyframes pulse {{
-                    from {{ box-shadow: 0 0 30px #52b78866; }}
-                    to   {{ box-shadow: 0 0 60px #52b788cc; }}
-                }}
-                </style>
-                """, unsafe_allow_html=True)
+                <div style="font-size:2em;color:#d8f3dc;font-weight:700;">{flash['customer']}</div>
+                <div style="font-size:1em;color:#95d5b2;margin-top:8px;">
+                    Floor {flash['floor']} &nbsp;·&nbsp; {flash['carpet']} sqft &nbsp;·&nbsp; {flash['time']} IST
+                </div>
+            </div>
+            <style>
+            @keyframes glow{{
+                from{{box-shadow:0 0 20px #52b78866;}}
+                to  {{box-shadow:0 0 60px #52b788dd;}}
+            }}
+            </style>
+            """, unsafe_allow_html=True)
 
         # ── Header ────────────────────────────────────────────────────────
-        hc1, hc2, hc3 = st.columns([2, 4, 2])
-        hc2.markdown(
-            f"<h1 style='text-align:center; margin-bottom:0;'>🏙️ Tarangan — Live Inventory</h1>"
-            f"<p style='text-align:center; color:#aaa; margin-top:4px;'>"
-            f"Auto-refreshes every 15 seconds · {ist_now_disp.strftime('%d %b %Y, %H:%M:%S IST')}</p>",
+        st.markdown(
+            f"<h1 style='text-align:center;margin:0 0 4px 0;'>🏙️ Tarangan — Live Availability</h1>"
+            f"<p style='text-align:center;color:#888;margin:0 0 16px 0;'>"
+            f"Refreshes every 15 s &nbsp;·&nbsp; {ist_now_disp.strftime('%d %b %Y, %H:%M:%S IST')}</p>",
             unsafe_allow_html=True,
         )
 
@@ -1508,92 +1496,114 @@ else:
         if inv_disp is None or inv_disp.empty:
             st.warning("Inventory not loaded.")
         else:
-            sold_set   = storage.get("sold_units", set())
-            rel_units  = storage.get("released_units", {})
-            inv_rel    = storage.get("inventory_released", False)
+            sold_set = storage.get("sold_units", set())
 
-            # ── Summary metrics ───────────────────────────────────────────
-            total     = len(inv_disp)
-            sold_c    = len(sold_set)
-            released  = len(rel_units)
-            available = total - sold_c - released
+            # Count only the two real states shown on this screen
+            refuge_ids = set()
+            for _, r in inv_disp.iterrows():
+                uid = str(r.get("ID","")).upper().strip()
+                uid_norm = uid.replace("A-","").replace("A","")
+                if uid in REFUGE_UNITS or uid_norm in {"705","1205"}:
+                    refuge_ids.add(uid)
 
-            m1, m2, m3, m4 = st.columns(4)
-            m1.metric("Total Units",     total)
-            m2.metric("✅ Available",    available, delta=None)
-            m3.metric("⛔ Booked",       sold_c)
-            m4.metric("🔓 Released",     released)
+            total_units   = len(inv_disp) - len(refuge_ids)
+            sold_count    = len([u for u in sold_set if u not in refuge_ids])
+            blocked_count = total_units - sold_count
+
+            # ── Metrics ───────────────────────────────────────────────────
+            mc1, mc2, mc3 = st.columns(3)
+            mc1.metric("🏢 Total Units",  total_units)
+            mc2.metric("🔒 Blocked",      blocked_count)
+            mc3.metric("⛔ Sold / Booked", sold_count)
 
             st.divider()
 
-            # ── Colour legend ─────────────────────────────────────────────
+            # ── Legend ────────────────────────────────────────────────────
             st.markdown(
-                "<div style='display:flex;gap:20px;flex-wrap:wrap;margin-bottom:12px;'>"
-                "<span style='background:#1e8449;color:#fff;padding:4px 10px;border-radius:6px;'>🟢 Available</span>"
-                "<span style='background:#c0392b;color:#fff;padding:4px 10px;border-radius:6px;'>⛔ Sold / Booked</span>"
-                "<span style='background:#d35400;color:#fff;padding:4px 10px;border-radius:6px;'>🔓 Released</span>"
-                "<span style='background:#7d3c98;color:#fff;padding:4px 10px;border-radius:6px;'>🏥 Refuge</span>"
-                "<span style='background:#616a6b;color:#fff;padding:4px 10px;border-radius:6px;'>🔒 In Discussion</span>"
+                "<div style='display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px;'>"
+                "<span style='background:#1a3a5c;color:#7ec8e3;padding:5px 14px;"
+                "border-radius:8px;border:1px solid #7ec8e3;font-weight:700;'>🔒 BLOCKED</span>"
+                "<span style='background:#3b0a0a;color:#e74c3c;padding:5px 14px;"
+                "border-radius:8px;border:1px solid #e74c3c;font-weight:700;'>⛔ SOLD</span>"
+                "<span style='background:#2d0a4e;color:#9b59b6;padding:5px 14px;"
+                "border-radius:8px;border:1px solid #9b59b6;font-weight:700;'>🏥 REFUGE</span>"
                 "</div>",
                 unsafe_allow_html=True,
             )
 
-            # ── Grid ──────────────────────────────────────────────────────
+            # ── Grid: 6 units per row, floor by floor ─────────────────────
+            # Group by floor for visual clarity
+            # Build rows ordered by ID (sheet order)
             DCOLS = 6
-            COLOR_MAP = {
-                "sold":      ("#c0392b", "⛔", "SOLD"),
-                "refuge":    ("#7d3c98", "🏥", "REFUGE"),
-                "released":  ("#d35400", "🔓", "RELEASED"),
-                "active":    ("#616a6b", "🔒", "IN DISCUSSION"),
-                "available": ("#1e8449", "🟢", "AVAILABLE"),
-            }
-
             rows_it = list(inv_disp.iterrows())
+
             for row_start in range(0, len(rows_it), DCOLS):
                 chunk = rows_it[row_start:row_start + DCOLS]
                 cols  = st.columns(DCOLS)
                 for ci, (_, r) in enumerate(chunk):
-                    uid = str(r.get("ID", "")).upper().strip()
+                    uid      = str(r.get("ID", "")).upper().strip()
                     uid_norm = uid.replace("A-","").replace("A","")
+                    floor_v  = r.get("Floor", "")
+                    carpet_v = r.get("CARPET", "")
 
+                    # Determine state — only 3 possibilities on Display
                     if uid in REFUGE_UNITS or uid_norm in {"705","1205"}:
-                        state = "refuge"
+                        bg    = "#2d0a4e"
+                        fg    = "#9b59b6"
+                        emoji = "🏥"
+                        label = "REFUGE"
+                        border= "#9b59b6"
                     elif uid in sold_set:
-                        state = "sold"
-                    elif uid in rel_units:
-                        state = "released"
+                        bg    = "#3b0a0a"
+                        fg    = "#e74c3c"
+                        emoji = "⛔"
+                        label = "SOLD"
+                        border= "#e74c3c"
                     else:
-                        # check if in any active cabin
-                        booths = storage.get("booths", {})
-                        cust_allotted = str(r.get("Customer Allotted","")).strip()
-                        in_cabin = any(
-                            cx and str(cx).upper() == cust_allotted.upper()
-                            for cx in booths.values()
+                        bg    = "#0a1a2e"
+                        fg    = "#7ec8e3"
+                        emoji = "🔒"
+                        label = "BLOCKED"
+                        border= "#7ec8e3"
+
+                    # Golden glow on the just-booked unit for 30 s
+                    extra_style = ""
+                    if (flash and flash.get("ts")
+                            and flash.get("unit","").upper() == uid
+                            and (ist_now_disp.timestamp() - flash["ts"]) <= 30):
+                        extra_style = (
+                            "box-shadow:0 0 22px 6px #ffe08a;"
+                            "border:2px solid #ffe08a !important;"
                         )
-                        state = "active" if in_cabin else "available"
-
-                    bg, emoji, label = COLOR_MAP[state]
-                    floor_val = r.get("Floor","")
-                    carpet_val = r.get("CARPET","")
-
-                    # Highlight recently booked unit with glow
-                    glow = ""
-                    if flash and flash.get("unit","").upper() == uid and flash.get("ts") and (ist_now_disp.timestamp() - flash["ts"]) <= 30:
-                        glow = "box-shadow: 0 0 18px 6px #ffe08a; border: 2px solid #ffe08a;"
 
                     cols[ci].markdown(f"""
                     <div style="
-                        background:{bg}22;
-                        border:1px solid {bg};
-                        border-radius:8px;
-                        padding:8px 4px;
+                        background:{bg};
+                        border:1px solid {border};
+                        border-radius:10px;
+                        padding:10px 4px 8px 4px;
                         text-align:center;
-                        margin-bottom:4px;
-                        {glow}
+                        margin-bottom:6px;
+                        {extra_style}
                     ">
-                        <div style="font-size:1.1em;font-weight:800;color:{bg};">{emoji} {uid}</div>
-                        <div style="font-size:0.7em;color:#ccc;">Fl.{floor_val} · {carpet_val} sqft</div>
-                        <div style="font-size:0.65em;font-weight:700;color:{bg};margin-top:2px;">{label}</div>
+                        <div style="font-size:0.75em;color:{fg}88;margin-bottom:2px;">
+                            Fl.{floor_v}
+                        </div>
+                        <div style="font-size:1.2em;font-weight:900;color:{fg};">
+                            {uid}
+                        </div>
+                        <div style="font-size:0.62em;color:{fg}99;margin:2px 0;">
+                            {carpet_v} sqft
+                        </div>
+                        <div style="
+                            font-size:0.65em;font-weight:800;
+                            color:{fg};
+                            background:{fg}22;
+                            border-radius:4px;
+                            padding:2px 0;
+                            margin-top:4px;
+                        ">
+                            {emoji} {label}
+                        </div>
                     </div>
                     """, unsafe_allow_html=True)
-
