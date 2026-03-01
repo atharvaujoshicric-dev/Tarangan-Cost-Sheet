@@ -1449,12 +1449,6 @@ else:
     # ────────────────────────────────────────────────────────────────────────
     elif role == "Display":
 
-        # ── 15-second auto-refresh via meta tag ──────────────────────────
-        st.markdown(
-            '<meta http-equiv="refresh" content="15">',
-            unsafe_allow_html=True,
-        )
-
         ist_now_disp = datetime.datetime.now(IST)
         flash        = storage.get("last_booking_flash")
 
@@ -1488,7 +1482,7 @@ else:
         st.markdown(
             f"<h1 style='text-align:center;margin:0 0 4px 0;'>🏙️ Tarangan — Live Availability</h1>"
             f"<p style='text-align:center;color:#888;margin:0 0 16px 0;'>"
-            f"Refreshes every 15 s &nbsp;·&nbsp; {ist_now_disp.strftime('%d %b %Y, %H:%M:%S IST')}</p>",
+            f"Live view · refreshes every 15 s &nbsp;·&nbsp; {ist_now_disp.strftime('%d %b %Y, %H:%M:%S IST')}</p>",
             unsafe_allow_html=True,
         )
 
@@ -1607,7 +1601,8 @@ else:
                         </div>
                     </div>
                     """, unsafe_allow_html=True)
-# ── Keep Display alive with 15-second internal rerun ─────────────
+
+        # ── Keep Display alive with 15-second internal rerun ─────────────
         # Uses st.rerun() after sleep — does NOT reload the browser page,
         # so session_state (login) is fully preserved.
         import time as _time
