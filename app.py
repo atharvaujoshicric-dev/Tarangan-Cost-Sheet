@@ -53,6 +53,7 @@ try:
         "Sales":    st.secrets["auth"]["Sales"],
         "GRE":      st.secrets["auth"]["GRE"],
         "Manager":  st.secrets["auth"]["Manager"],
+        "Display":  st.secrets["auth"].get("Display", "Display@2026"),
     }
 except Exception:
     # ── Fallback for local dev without secrets.toml ──────────────────────
@@ -69,6 +70,7 @@ except Exception:
         "Sales":    "Sales@2026",
         "GRE":      "Gre@2026",
         "Manager":  "Manager@2026",
+        "Display":  "Display@2026",
     }
 
 CSV_URL = (
@@ -179,6 +181,7 @@ def get_global_storage():
         "slot_snapshots":       {},      # {"Slot 1": [...], "Slot 2": [...], "Slot 3": [...]}
         "released_units":       {},      # unit_id -> {sales_name, reason, cabin, customer, time}
         "event_counter":        0,       # incremented on any finalize/close so all cabins auto-refresh
+        "last_booking_flash":   None,    # {"unit": ..., "customer": ..., "time": ...} — shown on Display screen
     }
 
 storage = get_global_storage()
@@ -667,60 +670,74 @@ else:
                     "Enter Unit ID (e.g. A-203):", key="manual_req",
                     placeholder="A-101 to A-1306"
                 ).strip().upper()
+
                 if c_send.button("Send Request", use_container_width=True):
-                    if req_unit_raw:
-                        # Step 1: validate format
+                    if not req_unit_raw:
+                        st.error("Please enter a Unit ID.")
+                    else:
+                        # Step 1: validate format (floors 1-13, units 01-06)
                         valid, result = is_valid_unit_id(req_unit_raw)
                         if not valid:
                             st.error(f"❌ Invalid unit: {result}")
                         else:
-                            req_unit = result  # normalised ID e.g. A-203
+                            req_unit = result  # normalised numeric ID, e.g. "203"
 
-                            # Step 2: check it exists in the inventory sheet
-                            inv_ids = set(inventory['ID'].astype(str).str.upper().str.strip().tolist())
-                            if req_unit not in inv_ids:
-                                st.error(f"❌ Unit {req_unit} not found in inventory. Check the ID and try again.")
-                            # Ensure it's always a list (defensive)
-                            pr = storage["pending_requests"]
-                            if not isinstance(pr.get(my_cabin), list):
-                                pr[my_cabin] = []
-                            pending_units = [p["unit"] for p in pr[my_cabin]]
+                            # Step 2: refuge check — hard block
+                            if req_unit in REFUGE_UNITS or req_unit in {"705", "1205"}:
+                                st.error(f"🚫 Unit {req_unit} is a REFUGE unit and cannot be unlocked.")
 
-                                # Hard-block refuge units
-                            if req_unit in REFUGE_UNITS or req_unit in {"705","1205"}:
-                                st.error(f"🚫 Unit {req_unit} is a REFUGE unit and can never be unlocked.")
+                            # Step 3: sold check — no request allowed on sold units
                             elif req_unit in storage["sold_units"]:
-                                st.error(f"🚫 Unit {req_unit} is already SOLD. Request not sent.")
-                            elif req_unit in pending_units:
-                                st.warning(f"⏳ Request for {req_unit} is already pending approval.")
-                            elif req_unit in storage["approved_units"].get(my_cabin, []):
-                                st.info(f"✅ {req_unit} is already approved for your cabin.")
+                                st.error(f"🚫 Unit {req_unit} is already SOLD. No request can be made.")
+
+                            # Step 4: exists in inventory sheet
+                            elif req_unit not in set(inventory["ID"].astype(str).str.upper().str.strip()):
+                                st.error(f"❌ Unit {req_unit} not found in inventory. Check the ID.")
+
                             else:
-                                pr[my_cabin].append({"unit": req_unit, "cabin": my_cabin})
-                                storage["unblock_counts"][my_cabin] = storage["unblock_counts"].get(my_cabin, 0) + 1
-                                storage["activity_log"].append({
-                                    "Time":   datetime.datetime.now(IST).strftime("%H:%M:%S"),
-                                    "Action": "Unblock Request",
-                                    "By":     f"Cabin {my_cabin}",
-                                    "Detail": f"Unit {req_unit} requested",
-                                })
-                                st.toast(f"✅ Request for {req_unit} sent to Admin!")
-                                st.rerun()
-                    else:
-                        st.error("Please enter a Unit ID.")
+                                # Ensure pending list is always a list
+                                if not isinstance(storage["pending_requests"].get(my_cabin), list):
+                                    storage["pending_requests"][my_cabin] = []
+                                pending_units = [
+                                    p["unit"] if isinstance(p, dict) else p
+                                    for p in storage["pending_requests"][my_cabin]
+                                ]
+
+                                if req_unit in pending_units:
+                                    st.warning(f"⏳ Request for {req_unit} is already pending approval.")
+                                elif req_unit in storage["approved_units"].get(my_cabin, []):
+                                    st.info(f"✅ {req_unit} is already approved for your cabin.")
+                                else:
+                                    storage["pending_requests"][my_cabin].append(
+                                        {"unit": req_unit, "cabin": my_cabin}
+                                    )
+                                    storage["unblock_counts"][my_cabin] = (
+                                        storage["unblock_counts"].get(my_cabin, 0) + 1
+                                    )
+                                    storage["activity_log"].append({
+                                        "Time":   datetime.datetime.now(IST).strftime("%H:%M:%S"),
+                                        "Action": "Unblock Request",
+                                        "By":     f"Cabin {my_cabin}",
+                                        "Detail": f"Unit {req_unit} requested",
+                                    })
+                                    st.toast(f"✅ Request for {req_unit} sent to Admin!")
+                                    st.rerun()
             else:
                 st.error(f"🚫 Maximum ({MAX_REQUESTS}) unblock requests used for this customer.")
 
             # Show pending & approved for this cabin
-            pr = storage["pending_requests"]
-            if not isinstance(pr.get(my_cabin), list):
-                pr[my_cabin] = []
-            cabin_pending  = [p["unit"] for p in pr.get(my_cabin, [])]
+            if not isinstance(storage["pending_requests"].get(my_cabin), list):
+                storage["pending_requests"][my_cabin] = []
+            cabin_pending = [
+                p["unit"] if isinstance(p, dict) else p
+                for p in storage["pending_requests"].get(my_cabin, [])
+            ]
             cabin_approved = storage["approved_units"].get(my_cabin, [])
             if cabin_pending:
                 st.caption(f"⏳ Pending admin approval: {', '.join(cabin_pending)}")
             if cabin_approved:
                 st.caption(f"✅ Approved units: {', '.join(cabin_approved)}")
+
 
             st.write("---")
 
@@ -922,6 +939,12 @@ else:
                                         reset_cabin(my_cabin)
                                         st.session_state.search_id_input = ""
                                         storage["event_counter"] = storage.get("event_counter", 0) + 1
+                                        # Flash for Display screen
+                                        storage["last_booking_flash"] = {
+                                            "unit":     search_id,
+                                            "customer": cust_name,
+                                            "floor":    row.get("Floor", ""),
+                                        }
 
                                         st.success(
                                             f"✅ Unit {search_id} Booked! "
@@ -1413,9 +1436,164 @@ else:
                     storage["slot_snapshots"]      = {}
                     storage["released_units"]      = {}
                     storage["event_counter"]       = 0
+                    storage["last_booking_flash"]  = None
                     st.cache_resource.clear()
                     st.success("System fully reset.")
                     st.rerun()
                 else:
                     st.error("Incorrect reset password.")
+
+
+    # ────────────────────────────────────────────────────────────────────────
+    # DISPLAY — Live Unit Grid (public screen, auto-refreshes every 15s)
+    # ────────────────────────────────────────────────────────────────────────
+    elif role == "Display":
+        # No sidebar clutter — this screen is meant for a TV/projector
+        st.set_page_config(page_title="Tarangan Live", layout="wide")
+
+        # ── 15-second auto-refresh via meta tag ──────────────────────────
+        st.markdown(
+            '<meta http-equiv="refresh" content="15">',
+            unsafe_allow_html=True,
+        )
+
+        # ── Booking Flash — show for 30 seconds after a new booking ──────
+        flash = storage.get("last_booking_flash")
+        ist_now_disp = datetime.datetime.now(IST)
+        if flash and flash.get("ts"):
+            age = ist_now_disp.timestamp() - flash["ts"]
+            if age <= 30:   # show flash for 30 seconds
+                st.markdown(f"""
+                <div style="
+                    background: linear-gradient(135deg, #1a472a, #2d6a4f);
+                    border: 3px solid #52b788;
+                    border-radius: 16px;
+                    padding: 28px 36px;
+                    text-align: center;
+                    margin-bottom: 28px;
+                    box-shadow: 0 0 40px #52b78866;
+                    animation: pulse 1s infinite alternate;
+                ">
+                    <div style="font-size: 2.2em; font-weight: 900; color: #b7e4c7; letter-spacing: 2px;">
+                        🎉 UNIT BOOKED!
+                    </div>
+                    <div style="font-size: 3.2em; font-weight: 900; color: #ffffff; margin: 10px 0;">
+                        Unit {flash['unit']}
+                    </div>
+                    <div style="font-size: 1.8em; color: #d8f3dc; font-weight: 700;">
+                        {flash['customer']}
+                    </div>
+                    <div style="font-size: 1em; color: #95d5b2; margin-top: 8px;">
+                        Floor {flash['floor']} · Carpet {flash['carpet']} sqft · Booked at {flash['time']}
+                    </div>
+                </div>
+                <style>
+                @keyframes pulse {{
+                    from {{ box-shadow: 0 0 30px #52b78866; }}
+                    to   {{ box-shadow: 0 0 60px #52b788cc; }}
+                }}
+                </style>
+                """, unsafe_allow_html=True)
+
+        # ── Header ────────────────────────────────────────────────────────
+        hc1, hc2, hc3 = st.columns([2, 4, 2])
+        hc2.markdown(
+            f"<h1 style='text-align:center; margin-bottom:0;'>🏙️ Tarangan — Live Inventory</h1>"
+            f"<p style='text-align:center; color:#aaa; margin-top:4px;'>"
+            f"Auto-refreshes every 15 seconds · {ist_now_disp.strftime('%d %b %Y, %H:%M:%S IST')}</p>",
+            unsafe_allow_html=True,
+        )
+
+        inv_disp = load_data()
+        if inv_disp is None or inv_disp.empty:
+            st.warning("Inventory not loaded.")
+        else:
+            sold_set   = storage.get("sold_units", set())
+            rel_units  = storage.get("released_units", {})
+            inv_rel    = storage.get("inventory_released", False)
+
+            # ── Summary metrics ───────────────────────────────────────────
+            total     = len(inv_disp)
+            sold_c    = len(sold_set)
+            released  = len(rel_units)
+            available = total - sold_c - released
+
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("Total Units",     total)
+            m2.metric("✅ Available",    available, delta=None)
+            m3.metric("⛔ Booked",       sold_c)
+            m4.metric("🔓 Released",     released)
+
+            st.divider()
+
+            # ── Colour legend ─────────────────────────────────────────────
+            st.markdown(
+                "<div style='display:flex;gap:20px;flex-wrap:wrap;margin-bottom:12px;'>"
+                "<span style='background:#1e8449;color:#fff;padding:4px 10px;border-radius:6px;'>🟢 Available</span>"
+                "<span style='background:#c0392b;color:#fff;padding:4px 10px;border-radius:6px;'>⛔ Sold / Booked</span>"
+                "<span style='background:#d35400;color:#fff;padding:4px 10px;border-radius:6px;'>🔓 Released</span>"
+                "<span style='background:#7d3c98;color:#fff;padding:4px 10px;border-radius:6px;'>🏥 Refuge</span>"
+                "<span style='background:#616a6b;color:#fff;padding:4px 10px;border-radius:6px;'>🔒 In Discussion</span>"
+                "</div>",
+                unsafe_allow_html=True,
+            )
+
+            # ── Grid ──────────────────────────────────────────────────────
+            DCOLS = 6
+            COLOR_MAP = {
+                "sold":      ("#c0392b", "⛔", "SOLD"),
+                "refuge":    ("#7d3c98", "🏥", "REFUGE"),
+                "released":  ("#d35400", "🔓", "RELEASED"),
+                "active":    ("#616a6b", "🔒", "IN DISCUSSION"),
+                "available": ("#1e8449", "🟢", "AVAILABLE"),
+            }
+
+            rows_it = list(inv_disp.iterrows())
+            for row_start in range(0, len(rows_it), DCOLS):
+                chunk = rows_it[row_start:row_start + DCOLS]
+                cols  = st.columns(DCOLS)
+                for ci, (_, r) in enumerate(chunk):
+                    uid = str(r.get("ID", "")).upper().strip()
+                    uid_norm = uid.replace("A-","").replace("A","")
+
+                    if uid in REFUGE_UNITS or uid_norm in {"705","1205"}:
+                        state = "refuge"
+                    elif uid in sold_set:
+                        state = "sold"
+                    elif uid in rel_units:
+                        state = "released"
+                    else:
+                        # check if in any active cabin
+                        booths = storage.get("booths", {})
+                        cust_allotted = str(r.get("Customer Allotted","")).strip()
+                        in_cabin = any(
+                            cx and str(cx).upper() == cust_allotted.upper()
+                            for cx in booths.values()
+                        )
+                        state = "active" if in_cabin else "available"
+
+                    bg, emoji, label = COLOR_MAP[state]
+                    floor_val = r.get("Floor","")
+                    carpet_val = r.get("CARPET","")
+
+                    # Highlight recently booked unit with glow
+                    glow = ""
+                    if flash and flash.get("unit","").upper() == uid and flash.get("ts") and (ist_now_disp.timestamp() - flash["ts"]) <= 30:
+                        glow = "box-shadow: 0 0 18px 6px #ffe08a; border: 2px solid #ffe08a;"
+
+                    cols[ci].markdown(f"""
+                    <div style="
+                        background:{bg}22;
+                        border:1px solid {bg};
+                        border-radius:8px;
+                        padding:8px 4px;
+                        text-align:center;
+                        margin-bottom:4px;
+                        {glow}
+                    ">
+                        <div style="font-size:1.1em;font-weight:800;color:{bg};">{emoji} {uid}</div>
+                        <div style="font-size:0.7em;color:#ccc;">Fl.{floor_val} · {carpet_val} sqft</div>
+                        <div style="font-size:0.65em;font-weight:700;color:{bg};margin-top:2px;">{label}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
 
