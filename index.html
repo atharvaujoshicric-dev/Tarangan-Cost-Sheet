@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Royal Keys — Cost Sheet</title>
+  <link rel="stylesheet" href="style.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;0,700;1,300;1,400&family=Montserrat:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+</head>
+<body>
+
+<!-- ═══════════════  LOGIN  ═══════════════ -->
+<div id="login-screen" class="screen active">
+  <div class="login-bg">
+    <div class="login-card">
+      <div class="login-logo"><img src="assets/logo-top.jpg" alt="Royal Keys" /></div>
+      <h2 class="login-title">COST SHEET PORTAL</h2>
+      <p class="login-sub">Enter your access code to continue</p>
+      <div class="input-wrap">
+        <label>Access Code</label>
+        <input id="pwd-input" type="password" placeholder="••••••••" autocomplete="off" />
+      </div>
+      <button id="login-btn" class="btn-gold">ENTER</button>
+      <p id="login-error" class="error-msg"></p>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════  APP  ═══════════════ -->
+<div id="app-screen" class="screen">
+
+  <header class="site-header">
+    <div class="header-inner">
+      <img src="assets/logo-top.jpg" alt="Royal Keys" class="header-logo" />
+      <div class="header-title">
+        <span class="project-label">ROYAL KEYS</span>
+        <span class="project-sub">Charholi Budruk · Wagholi · Pune &nbsp;|&nbsp; MAHA-RERA: P52100079364</span>
+      </div>
+      <button id="logout-btn" class="btn-logout">LOGOUT</button>
+    </div>
+  </header>
+
+  <main class="main-container">
+
+    <!-- STEP 1: TYPE -->
+    <section class="section-card step-card" id="step1">
+      <div class="step-label">STEP 1</div>
+      <h3 class="step-title">Property Type</h3>
+      <div class="toggle-group">
+        <button class="toggle-btn active" id="btn-residential" data-type="Residential">
+          <span class="toggle-icon">🏠</span> Residential
+        </button>
+        <button class="toggle-btn" id="btn-commercial" data-type="Commercial">
+          <span class="toggle-icon">🏢</span> Commercial
+        </button>
+      </div>
+    </section>
+
+    <!-- STEP 2: UNIT SELECTOR -->
+    <section class="section-card step-card" id="step2">
+      <div class="step-label">STEP 2</div>
+      <h3 class="step-title">Select Unit</h3>
+      <div class="filter-row">
+        <div class="filter-group">
+          <label>Wing</label>
+          <select id="filter-wing">
+            <option value="">All Wings</option>
+            <option value="A">A Wing</option>
+            <option value="B">B Wing</option>
+          </select>
+        </div>
+        <div class="filter-group">
+          <label>Floor</label>
+          <select id="filter-floor"><option value="">All Floors</option></select>
+        </div>
+        <div class="filter-group">
+          <label>Configuration</label>
+          <select id="filter-config"><option value="">All</option></select>
+        </div>
+        <div class="filter-group">
+          <label>Status</label>
+          <select id="filter-status">
+            <option value="">All</option>
+            <option value="unsold">Available</option>
+            <option value="sold">Sold</option>
+          </select>
+        </div>
+      </div>
+      <div class="unit-grid" id="unit-grid"></div>
+    </section>
+
+    <!-- STEP 3: COST SHEET -->
+    <section class="section-card step-card" id="step3" style="display:none">
+      <div class="step-label">STEP 3</div>
+      <h3 class="step-title">Cost Sheet</h3>
+
+      <div class="cs-top-row">
+        <div class="cs-field-group required-field">
+          <label>Customer Name <span class="req-star">*</span></label>
+          <input id="customer-name" type="text" placeholder="Enter customer name (required)" />
+          <span id="name-error" class="field-error-msg" style="display:none">⚠ Customer name is required to download the PDF.</span>
+        </div>
+        <div class="cs-field-group">
+          <label>Date</label>
+          <input id="cs-date" type="date" />
+        </div>
+      </div>
+
+      <!-- UNIT INFO TILES -->
+      <div class="unit-info-panel">
+        <div class="info-tile">
+          <span class="info-label">Unit No</span>
+          <span class="info-val" id="info-unit">—</span>
+        </div>
+        <div class="info-tile">
+          <span class="info-label">Wing / Floor</span>
+          <span class="info-val" id="info-wing-floor">—</span>
+        </div>
+        <div class="info-tile">
+          <span class="info-label">Configuration</span>
+          <span class="info-val" id="info-config">—</span>
+        </div>
+        <div class="info-tile">
+          <span class="info-label">Carpet Area (sq.ft.)</span>
+          <span class="info-val" id="info-carpet">—</span>
+        </div>
+        <div class="info-tile">
+          <span class="info-label">Saleable Area (sq.ft.)</span>
+          <span class="info-val" id="info-saleable">—</span>
+        </div>
+        <div class="info-tile highlight-tile">
+          <span class="info-label">GST Rate</span>
+          <span class="info-val" id="info-gst-rate">—</span>
+        </div>
+      </div>
+
+      <!-- COST TABLE — matches original style -->
+      <div class="cost-table-wrap">
+        <table class="cost-table">
+          <thead>
+            <tr>
+              <th class="th-desc">Description</th>
+              <th class="th-rate">Rate / Details</th>
+              <th class="th-amt">Amount (₹)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="row-white">
+              <td class="td-label">Agreement Value</td>
+              <td class="td-rate">
+                <div class="apr-row">
+                  APR: ₹&nbsp;<input id="apr-input" type="number" class="inline-num" min="0" step="50" />
+                  &nbsp;/ sq.ft.
+                </div>
+              </td>
+              <td class="td-amt" id="amt-agreement">—</td>
+            </tr>
+            <tr class="row-tint">
+              <td class="td-label" id="sd-label">Stamp Duty 7%</td>
+              <td class="td-rate">
+                <select id="sd-gender" class="inline-sel">
+                  <option value="male">Male (7%)</option>
+                  <option value="female">Female (6%)</option>
+                  <option value="both">Both (6%)</option>
+                </select>
+              </td>
+              <td class="td-amt" id="amt-sd">—</td>
+            </tr>
+            <tr class="row-white">
+              <td class="td-label">Registration Charges</td>
+              <td class="td-rate">Fixed</td>
+              <td class="td-amt">₹30,000</td>
+            </tr>
+            <tr class="row-tint">
+              <td class="td-label" id="gst-label">GST @ 5%</td>
+              <td class="td-rate" id="gst-detail">As applicable</td>
+              <td class="td-amt" id="amt-gst">—</td>
+            </tr>
+            <tr class="row-total">
+              <td colspan="2" class="total-label">Total Cost</td>
+              <td class="td-amt total-amt" id="amt-total">—</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- WORDS -->
+      <p class="words-line"><span class="words-prefix">Amount in Words:</span> <span id="words-line">—</span></p>
+
+      <!-- TOTAL EDIT -->
+      <div class="total-edit-panel">
+        <div class="tep-label">✏️ Edit Total Package &nbsp;→&nbsp; APR auto-updates</div>
+        <div class="tep-row">
+          <span class="tep-rs">₹</span>
+          <input id="total-input" type="number" class="total-edit-input" placeholder="Enter desired total" />
+          <button class="btn-gold small" id="apply-total-btn">APPLY</button>
+        </div>
+      </div>
+
+      <!-- STAGE OF PAYMENT (hidden for commercial) -->
+      <div id="stage-section" class="terms-block">
+        <div class="terms-title">STAGE OF PAYMENT</div>
+        <table class="stage-table">
+          <tbody>
+            <tr class="row-white"><td>On or before execution of the Agreement</td><td>10%</td></tr>
+            <tr class="row-tint"><td>Within 15 days from the date of execution of the Agreement</td><td>20%</td></tr>
+            <tr class="row-white"><td>On completion of the plinth of the building / wing in which the said flat is located</td><td>15%</td></tr>
+            <tr class="row-tint"><td>On completion of the second slab of the building / wing</td><td>5%</td></tr>
+            <tr class="row-white"><td>On completion of the fourth slab (including podiums &amp; stilts)</td><td>5%</td></tr>
+            <tr class="row-tint"><td>On completion of the sixth slab (including podiums &amp; stilts)</td><td>5%</td></tr>
+            <tr class="row-white"><td>On completion of the tenth slab (including podiums &amp; stilts)</td><td>5%</td></tr>
+            <tr class="row-tint"><td>On completion of the fourteenth slab (including podiums &amp; stilts)</td><td>5%</td></tr>
+            <tr class="row-white"><td>On completion of walls, internal plaster, flooring, doors &amp; windows of the said flat</td><td>5%</td></tr>
+            <tr class="row-tint"><td>On completion of sanitary fittings, staircases, lift wells &amp; lobbies up to the floor level of the said flat</td><td>5%</td></tr>
+            <tr class="row-white"><td>On completion of external plumbing, external plaster, elevation &amp; terrace waterproofing</td><td>5%</td></tr>
+            <tr class="row-tint"><td>On completion of lifts, water pumps, electrical fittings, electro-mechanical &amp; environmental requirements, entrance lobbies, plinth protection &amp; paving of common areas</td><td>10%</td></tr>
+            <tr class="row-white"><td>At the time of handing over possession of the flat to the allottee(s) on or after receipt of Occupancy Certificate</td><td>5%</td></tr>
+            <tr class="row-total"><td><strong>TOTAL</strong></td><td><strong>100%</strong></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- TERMS -->
+      <div class="terms-block">
+        <div class="terms-title">TERMS AND CONDITIONS</div>
+        <ul class="terms-list" id="terms-list"></ul>
+      </div>
+
+      <div class="action-row">
+        <button class="btn-outline" id="back-btn">← Change Unit</button>
+        <button class="btn-gold" id="download-btn">⬇ Download PDF</button>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="site-footer">
+    <div class="footer-inner">
+      <img src="assets/logo-bottom.jpg" alt="Aurelia Developers" class="footer-logo" />
+      <div class="footer-center">
+        <strong>Dikshita Dak – 94619 30679 &nbsp;|&nbsp; Kartik Patil – 99213 84868</strong>
+        <span>Contact Us: &nbsp;<strong>080 6591 7414</strong></span>
+        <span>Site Address: Royal Keys, Charholi Budruk – Nirgudi Rd, Wagholi, Charholi Budruk, Maharashtra 412105</span>
+      </div>
+      <div class="footer-right">
+        <img src="assets/bw_logo.png" alt="BeyondWalls" class="footer-logo bw" />
+      </div>
+    </div>
+  </footer>
+
+</div>
+
+<script src="assets/data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
